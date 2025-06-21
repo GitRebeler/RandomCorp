@@ -127,9 +127,7 @@ function App() {
     }
 
     setLoading(true);
-    setError(null);
-
-    try {
+    setError(null);    try {
       const response = await fetch('/api/submit', {
         method: 'POST',
         headers: {
