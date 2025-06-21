@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   ThemeProvider,
   createTheme,
@@ -14,13 +14,17 @@ import {
   Card,
   CardContent,
   Alert,
-  CircularProgress
+  CircularProgress,
+  IconButton,
+  useMediaQuery
 } from '@mui/material';
+import { Brightness4, Brightness7 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
 
-// Create theme similar to Microsoft Learn
-const theme = createTheme({
+// Create dynamic theme function
+const createAppTheme = (darkMode: boolean) => createTheme({
   palette: {
+    mode: darkMode ? 'dark' : 'light',
     primary: {
       main: '#0078d4', // Microsoft blue
     },
@@ -28,12 +32,12 @@ const theme = createTheme({
       main: '#6c757d', // Grey color
     },
     background: {
-      default: '#f8f9fa',
-      paper: '#ffffff',
+      default: darkMode ? '#121212' : '#f8f9fa',
+      paper: darkMode ? '#1e1e1e' : '#ffffff',
     },
     text: {
-      primary: '#323130',
-      secondary: '#605e5c',
+      primary: darkMode ? '#ffffff' : '#323130',
+      secondary: darkMode ? '#b3b3b3' : '#605e5c',
     },
   },
   typography: {
@@ -66,21 +70,30 @@ const theme = createTheme({
         },
       },
     },
+    MuiAppBar: {
+      styleOverrides: {
+        root: {
+          backgroundColor: darkMode ? '#1e1e1e' : '#0078d4',
+        },
+      },
+    },
   },
 });
 
 // Styled components
 const HeaderSection = styled(Box)(({ theme }) => ({
-  background: 'linear-gradient(135deg, #0078d4 0%, #106ebe 100%)',
+  background: theme.palette.mode === 'dark' 
+    ? 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)'
+    : 'linear-gradient(135deg, #0078d4 0%, #106ebe 100%)',
   color: 'white',
   padding: theme.spacing(6, 0),
   textAlign: 'center',
 }));
 
-const Logo = styled(Box)({
+const Logo = styled(Box)(({ theme }) => ({
   width: '60px',
   height: '60px',
-  backgroundColor: '#6c757d',
+  backgroundColor: theme.palette.secondary.main,
   borderRadius: '8px',
   display: 'flex',
   alignItems: 'center',
@@ -90,19 +103,23 @@ const Logo = styled(Box)({
   fontWeight: 'bold',
   color: 'white',
   margin: '0 auto 16px',
-});
+}));
 
 const FormSection = styled(Paper)(({ theme }) => ({
   padding: theme.spacing(4),
   marginTop: theme.spacing(4),
   borderRadius: '8px',
-  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+  boxShadow: theme.palette.mode === 'dark' 
+    ? '0 2px 8px rgba(0,0,0,0.3)' 
+    : '0 2px 8px rgba(0,0,0,0.1)',
 }));
 
 const ResultSection = styled(Card)(({ theme }) => ({
   marginTop: theme.spacing(3),
   borderRadius: '8px',
-  boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+  boxShadow: theme.palette.mode === 'dark' 
+    ? '0 2px 8px rgba(0,0,0,0.3)' 
+    : '0 2px 8px rgba(0,0,0,0.1)',
 }));
 
 interface SubmissionResult {
@@ -112,11 +129,38 @@ interface SubmissionResult {
 }
 
 function App() {
+  // Dark mode detection and state
+  const prefersDarkMode = useMediaQuery('(prefers-color-scheme: dark)');
+  const [darkMode, setDarkMode] = useState(() => {
+    const saved = localStorage.getItem('darkMode');
+    return saved !== null ? JSON.parse(saved) : prefersDarkMode;
+  });
+
+  // Create theme based on dark mode state
+  const theme = useMemo(() => createAppTheme(darkMode), [darkMode]);
+
+  // Save dark mode preference to localStorage
+  useEffect(() => {
+    localStorage.setItem('darkMode', JSON.stringify(darkMode));
+  }, [darkMode]);
+
+  // Update dark mode when system preference changes (if user hasn't manually set it)
+  useEffect(() => {
+    const saved = localStorage.getItem('darkMode');
+    if (saved === null) {
+      setDarkMode(prefersDarkMode);
+    }
+  }, [prefersDarkMode]);
+
   const [firstName, setFirstName] = useState('');
   const [lastName, setLastName] = useState('');
   const [result, setResult] = useState<SubmissionResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const toggleDarkMode = () => {
+    setDarkMode(!darkMode);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -161,12 +205,19 @@ function App() {
 
   return (
     <ThemeProvider theme={theme}>
-      <CssBaseline />
-      <AppBar position="static" elevation={0}>
+      <CssBaseline />      <AppBar position="static" elevation={0}>
         <Toolbar>
           <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
             Random Corp
           </Typography>
+          <IconButton 
+            color="inherit" 
+            onClick={toggleDarkMode}
+            aria-label="toggle dark mode"
+            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {darkMode ? <Brightness7 /> : <Brightness4 />}
+          </IconButton>
         </Toolbar>
       </AppBar>
 
