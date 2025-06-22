@@ -302,6 +302,54 @@ class DatabaseManager:
             logger.error(f"❌ Failed to get recent submissions: {str(e)}")
             raise
     
+    async def get_paginated_submissions(self, limit: int = 10, offset: int = 0) -> List[Dict]:
+        """Get paginated submissions from the database"""
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute(f"""
+                        SELECT 
+                            submission_id, first_name, last_name, message, 
+                            batch_id, processing_time, created_at
+                        FROM submissions 
+                        ORDER BY created_at DESC
+                        OFFSET {offset} ROWS
+                        FETCH NEXT {limit} ROWS ONLY
+                    """)
+                    
+                    results = await cursor.fetchall()
+                    submissions = []
+                    
+                    for row in results:
+                        submissions.append({
+                            'submission_id': row[0],
+                            'first_name': row[1],
+                            'last_name': row[2],
+                            'message': row[3],
+                            'batch_id': row[4],
+                            'processing_time': float(row[5]) if row[5] else 0.0,
+                            'created_at': row[6].isoformat() if row[6] else None
+                        })
+                    
+                    return submissions
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to get paginated submissions: {str(e)}")
+            raise
+    
+    async def get_submissions_count(self) -> int:
+        """Get total count of submissions"""
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute("SELECT COUNT(*) FROM submissions")
+                    result = await cursor.fetchone()
+                    return int(result[0]) if result else 0
+                    
+        except Exception as e:
+            logger.error(f"❌ Failed to get submissions count: {str(e)}")
+            raise
+    
     async def update_statistics(self, stats: Dict):
         """Update statistics in the database"""
         try:

@@ -1,25 +1,41 @@
-import React, { useState, useEffect, useMemo } from 'react';
 import {
-  ThemeProvider,
+  AccountCircle,
+  Article,
+  Brightness4,
+  Brightness7,
+  Close,
+  Menu as MenuIcon,
+  PlayArrow,
+  Search
+} from '@mui/icons-material';
+import {
+  AppBar,
+  Box,
+  Button,
+  Container,
   createTheme,
   CssBaseline,
-  AppBar,
+  Divider,
+  IconButton,
+  InputAdornment,
+  Menu,
+  MenuItem,
+  Stack,
+  TextField,
+  ThemeProvider,
   Toolbar,
   Typography,
-  Container,
-  Box,
-  TextField,
-  Button,
-  Paper,
-  Card,
-  CardContent,
-  Alert,
-  CircularProgress,
-  IconButton,
-  useMediaQuery
+  useMediaQuery,
 } from '@mui/material';
-import { Brightness4, Brightness7 } from '@mui/icons-material';
 import { styled } from '@mui/material/styles';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Route, BrowserRouter as Router, Routes, useLocation, useNavigate } from 'react-router-dom';
+
+// Import components
+import AppBreadcrumbs from './components/AppBreadcrumbs';
+import HomePage from './components/HomePage';
+import ReportingPage from './components/ReportingPage';
+import VideosPage from './components/VideosPage';
 
 // Create dynamic theme function
 const createAppTheme = (darkMode: boolean) => createTheme({
@@ -73,60 +89,312 @@ const createAppTheme = (darkMode: boolean) => createTheme({
     MuiAppBar: {
       styleOverrides: {
         root: {
-          backgroundColor: darkMode ? '#1e1e1e' : '#0078d4',
+          backgroundColor: darkMode ? '#1e1e1e' : '#ffffff',
+          borderBottom: `1px solid ${darkMode ? '#323130' : '#e5e5e5'}`,
+          boxShadow: darkMode 
+            ? '0 1px 2px rgba(0,0,0,0.3)' 
+            : '0 1px 2px rgba(0,0,0,0.1)',
         },
       },
     },
   },
 });
 
-// Styled components
-const HeaderSection = styled(Box)(({ theme }) => ({
-  background: theme.palette.mode === 'dark' 
-    ? 'linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%)'
-    : 'linear-gradient(135deg, #0078d4 0%, #106ebe 100%)',
-  color: 'white',
-  padding: theme.spacing(6, 0),
-  textAlign: 'center',
+// Navigation styled components
+const NavButton = styled(Button)(({ theme }) => ({
+  color: theme.palette.text.primary,
+  textTransform: 'none',
+  fontWeight: 400,
+  padding: '8px 16px',
+  minWidth: 'auto',
+  '&:hover': {
+    backgroundColor: theme.palette.action.hover,
+  },
 }));
 
-const Logo = styled(Box)(({ theme }) => ({
-  width: '60px',
-  height: '60px',
-  backgroundColor: theme.palette.secondary.main,
-  borderRadius: '8px',
-  display: 'flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  marginBottom: '16px',
-  fontSize: '24px',
-  fontWeight: 'bold',
-  color: 'white',
-  margin: '0 auto 16px',
+const SearchField = styled(TextField)(({ theme }) => ({
+  '& .MuiOutlinedInput-root': {
+    backgroundColor: theme.palette.mode === 'dark' ? '#2d2d2d' : '#f3f2f1',
+    border: 'none',
+    borderRadius: '4px',
+    height: '32px',
+    fontSize: '14px',
+    '& fieldset': {
+      border: 'none',
+    },
+    '&:hover fieldset': {
+      border: 'none',
+    },
+    '&.Mui-focused fieldset': {
+      border: `1px solid ${theme.palette.primary.main}`,
+    },
+  },
+  '& .MuiOutlinedInput-input': {
+    padding: '6px 8px',
+    '&::placeholder': {
+      color: theme.palette.text.secondary,
+      opacity: 1,
+    },
+  },
 }));
 
-const FormSection = styled(Paper)(({ theme }) => ({
-  padding: theme.spacing(4),
-  marginTop: theme.spacing(4),
-  borderRadius: '8px',
-  boxShadow: theme.palette.mode === 'dark' 
-    ? '0 2px 8px rgba(0,0,0,0.3)' 
-    : '0 2px 8px rgba(0,0,0,0.1)',
-}));
-
-const ResultSection = styled(Card)(({ theme }) => ({
-  marginTop: theme.spacing(3),
-  borderRadius: '8px',
-  boxShadow: theme.palette.mode === 'dark' 
-    ? '0 2px 8px rgba(0,0,0,0.3)' 
-    : '0 2px 8px rgba(0,0,0,0.1)',
-}));
-
-interface SubmissionResult {
-  firstName: string;
-  lastName: string;
-  message: string;
+// Main App Layout Component
+interface AppLayoutProps {
+  darkMode: boolean;
+  toggleDarkMode: () => void;
 }
+
+const AppLayout: React.FC<AppLayoutProps> = ({ darkMode, toggleDarkMode }) => {
+  const [anchorEl, setAnchorEl] = useState<null | HTMLElement>(null);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [searchValue, setSearchValue] = useState('');
+  
+  const navigate = useNavigate();
+  const location = useLocation();
+  
+  const isMobile = useMediaQuery((theme: any) => theme.breakpoints.down('md'));
+
+  const handleMenuOpen = (event: React.MouseEvent<HTMLElement>) => {
+    setAnchorEl(event.currentTarget);
+  };
+
+  const handleMenuClose = () => {
+    setAnchorEl(null);
+  };
+
+  const handleMobileMenuToggle = () => {
+    setMobileMenuOpen(!mobileMenuOpen);
+  };
+
+  const handleBrandingClick = () => {
+    navigate('/');
+    setMobileMenuOpen(false);
+  };
+
+  const handleNavigation = (path: string) => {
+    navigate(path);
+    setMobileMenuOpen(false);
+  };
+
+  return (
+    <>
+      {/* Navigation Bar */}
+      <AppBar position="static" elevation={0}>
+        <Toolbar sx={{ minHeight: '48px !important', px: 2 }}>
+          {/* Mobile menu button */}
+          {isMobile && (
+            <IconButton
+              edge="start"
+              color="inherit"
+              aria-label="menu"
+              onClick={handleMobileMenuToggle}
+              sx={{ mr: 1, color: 'text.primary' }}
+            >
+              {mobileMenuOpen ? <Close /> : <MenuIcon />}
+            </IconButton>
+          )}
+
+          {/* Random Corp branding - clickable */}
+          <Typography 
+            variant="h6" 
+            component="button"
+            onClick={handleBrandingClick}
+            sx={{ 
+              fontWeight: 600,
+              color: 'primary.main',
+              mr: 3,
+              fontSize: { xs: '14px', sm: '16px' },
+              flexGrow: isMobile ? 1 : 0,
+              border: 'none',
+              background: 'none',
+              cursor: 'pointer',
+              '&:hover': {
+                opacity: 0.8,
+              },
+            }}
+          >
+            Random Corp
+          </Typography>
+
+          {/* Desktop Navigation Items */}
+          {!isMobile && (
+            <Stack direction="row" spacing={1} sx={{ flexGrow: 1 }}>
+              <NavButton 
+                startIcon={<Article />}
+                onClick={() => handleNavigation('/reporting')}
+                sx={{ 
+                  backgroundColor: location.pathname === '/reporting' ? 'action.selected' : 'transparent'
+                }}
+              >
+                Reporting
+              </NavButton>
+              <NavButton 
+                startIcon={<PlayArrow />}
+                onClick={() => handleNavigation('/videos')}
+                sx={{ 
+                  backgroundColor: location.pathname === '/videos' ? 'action.selected' : 'transparent'
+                }}
+              >
+                Videos
+              </NavButton>
+            </Stack>
+          )}
+
+          {/* Search - Desktop */}
+          {!isMobile && (
+            <SearchField
+              placeholder="Search"
+              value={searchValue}
+              onChange={(e) => setSearchValue(e.target.value)}
+              size="small"
+              sx={{ width: 200, mr: 2 }}
+              InputProps={{
+                startAdornment: (
+                  <InputAdornment position="start">
+                    <Search sx={{ fontSize: 16, color: 'text.secondary' }} />
+                  </InputAdornment>
+                ),
+              }}
+            />
+          )}          {/* User actions */}
+          <IconButton 
+            color="inherit" 
+            onClick={toggleDarkMode}
+            aria-label="toggle dark mode"
+            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
+            sx={{ mr: 1, color: 'text.primary' }}
+          >
+            {darkMode ? <Brightness7 /> : <Brightness4 />}
+          </IconButton>
+
+          {!isMobile && (
+            <Button
+              startIcon={<AccountCircle />}
+              onClick={handleMenuOpen}
+              sx={{ 
+                color: 'text.primary',
+                textTransform: 'none',
+                minWidth: 'auto'
+              }}
+            >
+              Sign in
+            </Button>
+          )}
+
+          <Menu
+            anchorEl={anchorEl}
+            open={Boolean(anchorEl)}
+            onClose={handleMenuClose}
+            anchorOrigin={{
+              vertical: 'bottom',
+              horizontal: 'right',
+            }}
+            transformOrigin={{
+              vertical: 'top',
+              horizontal: 'right',
+            }}
+          >
+            <MenuItem onClick={handleMenuClose}>Profile</MenuItem>
+            <MenuItem onClick={handleMenuClose}>Settings</MenuItem>
+            <Divider />
+            <MenuItem onClick={handleMenuClose}>Sign out</MenuItem>
+          </Menu>
+        </Toolbar>
+
+        {/* Mobile Navigation Menu */}
+        {isMobile && mobileMenuOpen && (
+          <Box sx={{ 
+            borderTop: 1, 
+            borderColor: 'divider',
+            backgroundColor: 'background.paper',
+            pb: 2
+          }}>
+            {/* Mobile Search */}
+            <Box sx={{ p: 2 }}>
+              <SearchField
+                placeholder="Search"
+                value={searchValue}
+                onChange={(e) => setSearchValue(e.target.value)}
+                size="small"
+                fullWidth
+                InputProps={{
+                  startAdornment: (
+                    <InputAdornment position="start">
+                      <Search sx={{ fontSize: 16, color: 'text.secondary' }} />
+                    </InputAdornment>
+                  ),
+                }}
+              />
+            </Box>
+
+            {/* Mobile Navigation Items */}
+            <Stack spacing={0} sx={{ px: 2 }}>
+              <NavButton 
+                startIcon={<Article />} 
+                fullWidth 
+                onClick={() => handleNavigation('/reporting')}
+                sx={{ 
+                  justifyContent: 'flex-start', 
+                  py: 1.5,
+                  backgroundColor: location.pathname === '/reporting' ? 'action.selected' : 'transparent'
+                }}
+              >
+                Reporting
+              </NavButton>
+              <NavButton 
+                startIcon={<PlayArrow />} 
+                fullWidth 
+                onClick={() => handleNavigation('/videos')}
+                sx={{ 
+                  justifyContent: 'flex-start', 
+                  py: 1.5,
+                  backgroundColor: location.pathname === '/videos' ? 'action.selected' : 'transparent'
+                }}
+              >
+                Videos
+              </NavButton>
+              
+              <Divider sx={{ my: 1 }} />
+              
+              <Button
+                startIcon={<AccountCircle />}
+                onClick={handleMenuOpen}
+                fullWidth
+                sx={{ 
+                  color: 'text.primary',
+                  textTransform: 'none',
+                  justifyContent: 'flex-start',
+                  py: 1.5
+                }}
+              >
+                Sign in
+              </Button>
+            </Stack>
+          </Box>
+        )}
+      </AppBar>
+
+      {/* Breadcrumbs */}
+      <AppBreadcrumbs />
+
+      {/* Main Content */}
+      <Container maxWidth="xl" sx={{ py: 2 }}>
+        <Routes>
+          <Route path="/" element={<HomePage />} />
+          <Route path="/reporting" element={<ReportingPage />} />
+          <Route path="/videos" element={<VideosPage />} />
+        </Routes>
+      </Container>
+
+      {/* Footer */}
+      <Box sx={{ mt: 6, mb: 4, textAlign: 'center' }}>
+        <Typography variant="body2" color="text.secondary">
+          © 2025 Random Corp. All rights reserved.
+        </Typography>
+      </Box>
+    </>
+  );
+};
 
 function App() {
   // Dark mode detection and state
@@ -151,170 +419,16 @@ function App() {
       setDarkMode(prefersDarkMode);
     }
   }, [prefersDarkMode]);
-
-  const [firstName, setFirstName] = useState('');
-  const [lastName, setLastName] = useState('');
-  const [result, setResult] = useState<SubmissionResult | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const toggleDarkMode = () => {
     setDarkMode(!darkMode);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!firstName.trim() || !lastName.trim()) {
-      setError('Please fill in both first name and last name');
-      return;
-    }
-
-    setLoading(true);
-    setError(null);    try {
-      const response = await fetch('/api/submit', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          firstName: firstName.trim(),
-          lastName: lastName.trim(),
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-
-      const data = await response.json();
-      setResult(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'An error occurred while submitting');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleClear = () => {
-    setFirstName('');
-    setLastName('');
-    setResult(null);
-    setError(null);
-  };
-
   return (
     <ThemeProvider theme={theme}>
-      <CssBaseline />      <AppBar position="static" elevation={0}>
-        <Toolbar>
-          <Typography variant="h6" component="div" sx={{ flexGrow: 1 }}>
-            Random Corp
-          </Typography>
-          <IconButton 
-            color="inherit" 
-            onClick={toggleDarkMode}
-            aria-label="toggle dark mode"
-            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-          >
-            {darkMode ? <Brightness7 /> : <Brightness4 />}
-          </IconButton>
-        </Toolbar>
-      </AppBar>
-
-      <HeaderSection>
-        <Container maxWidth="md">
-          <Logo>RC</Logo>
-          <Typography variant="h1" component="h1" gutterBottom>
-            Random Corp
-          </Typography>
-          <Typography variant="h6" sx={{ opacity: 0.9 }}>
-            Welcome to our professional submission portal
-          </Typography>
-        </Container>
-      </HeaderSection>
-
-      <Container maxWidth="md">
-        <FormSection>
-          <Typography variant="h2" component="h2" gutterBottom>
-            Submit Your Information
-          </Typography>
-          <Typography variant="body1" color="text.secondary" paragraph>
-            Please provide your first and last name to get started.
-          </Typography>
-
-          {error && (
-            <Alert severity="error" sx={{ mb: 2 }}>
-              {error}
-            </Alert>
-          )}
-
-          <Box component="form" onSubmit={handleSubmit}>
-            <TextField
-              fullWidth
-              label="First Name"
-              variant="outlined"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              disabled={loading}
-              required
-            />
-            <TextField
-              fullWidth
-              label="Last Name"
-              variant="outlined"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              disabled={loading}
-              required
-            />
-            <Box sx={{ display: 'flex', gap: 2, mt: 2 }}>
-              <Button
-                type="submit"
-                variant="contained"
-                size="large"
-                disabled={loading}
-                sx={{ minWidth: 120 }}
-              >
-                {loading ? <CircularProgress size={24} /> : 'Submit'}
-              </Button>
-              <Button
-                type="button"
-                variant="outlined"
-                size="large"
-                onClick={handleClear}
-                disabled={loading}
-              >
-                Clear
-              </Button>
-            </Box>
-          </Box>
-        </FormSection>
-
-        {result && (
-          <ResultSection>
-            <CardContent>
-              <Typography variant="h6" component="h3" gutterBottom>
-                Submission Result
-              </Typography>
-              <Typography variant="body1" paragraph>
-                <strong>First Name:</strong> {result.firstName}
-              </Typography>
-              <Typography variant="body1" paragraph>
-                <strong>Last Name:</strong> {result.lastName}
-              </Typography>
-              <Typography variant="body1" color="primary">
-                <strong>Message:</strong> {result.message}
-              </Typography>
-            </CardContent>
-          </ResultSection>
-        )}
-
-        <Box sx={{ mt: 6, mb: 4, textAlign: 'center' }}>
-          <Typography variant="body2" color="text.secondary">
-            © 2025 Random Corp. All rights reserved.
-          </Typography>
-        </Box>
-      </Container>
+      <CssBaseline />
+      <Router>
+        <AppLayout darkMode={darkMode} toggleDarkMode={toggleDarkMode} />
+      </Router>
     </ThemeProvider>
   );
 }

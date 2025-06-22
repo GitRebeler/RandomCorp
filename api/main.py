@@ -101,9 +101,17 @@ class SubmissionResponse(BaseModel):
     timestamp: datetime
     processingTime: float
 
+class LatestSubmission(BaseModel):
+    id: str
+    name: str
+    timestamp: str
+
 class StatsResponse(BaseModel):
     total_messages: int
     total_submissions: int
+    recent_submissions: int
+    avg_processing_time: float
+    latest_submission: Optional[LatestSubmission]
     api_version: str
     status: str
     debug_mode: bool
@@ -427,19 +435,28 @@ async def get_stats():
         if debug_mode:
             logger.debug(f"📊 Generating async stats report from database - Uptime: {uptime:.1f}s")
           # Get stats from database
-        db_stats = await db_manager.get_statistics()
-          # Extract last submission timestamp
+        db_stats = await db_manager.get_statistics()        # Extract last submission timestamp
         latest_sub = db_stats["latest_submission"]
         last_submission_time = None
+        latest_submission_obj = None
+        
         if latest_sub and latest_sub.get('timestamp'):
             try:
                 last_submission_time = datetime.fromisoformat(latest_sub['timestamp'].replace('Z', '+00:00'))
+                latest_submission_obj = LatestSubmission(
+                    id=latest_sub['id'],
+                    name=latest_sub['name'],
+                    timestamp=latest_sub['timestamp']
+                )
             except:
                 last_submission_time = None
 
         stats = StatsResponse(
             total_messages=len(POSITIVE_MESSAGES),
             total_submissions=db_stats["total_submissions"],
+            recent_submissions=db_stats.get("recent_submissions", 0),
+            avg_processing_time=db_stats.get("avg_processing_time", 0.0),
+            latest_submission=latest_submission_obj,
             api_version="2.1.0",
             status="operational",
             debug_mode=debug_mode,
@@ -457,24 +474,30 @@ async def get_stats():
         raise HTTPException(status_code=500, detail="Error retrieving API statistics from database")
 
 @app.get("/api/submissions")
-async def get_recent_submissions(limit: int = 10, offset: int = 0):
+async def get_submissions(limit: int = 10, offset: int = 0):
     """
-    Get recent submissions from SQL Server database
+    Get paginated submissions from SQL Server database
     """
     try:
         if debug_mode:
             logger.debug(f"📋 Retrieving {limit} submissions from database (offset: {offset})")
         
-        submissions = await db_manager.get_recent_submissions(limit=limit)
+        # Get paginated submissions
+        submissions = await db_manager.get_paginated_submissions(limit=limit, offset=offset)
+        
+        # Get total count for pagination
+        total_count = await db_manager.get_submissions_count()
         
         if debug_mode:
-            logger.debug(f"📄 Retrieved {len(submissions)} submissions from database")
+            logger.debug(f"📄 Retrieved {len(submissions)} submissions from database (total: {total_count})")
         
         return {
             "submissions": submissions,
             "count": len(submissions),
+            "total": total_count,
             "limit": limit,
-            "offset": offset
+            "offset": offset,
+            "has_more": offset + len(submissions) < total_count
         }
         
     except Exception as e:
