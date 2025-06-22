@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import React, { useState } from 'react';
+import RandomCorpLogo from './RandomCorpLogo';
 
 const HeaderSection = styled(Box)(({ theme }) => ({
   background: theme.palette.mode === 'dark' 
@@ -111,10 +112,11 @@ const HomePage: React.FC = () => {
   };
 
   return (
-    <>
-      <HeaderSection>
+    <>      <HeaderSection>
         <Container maxWidth="md">
-          <Logo>RC</Logo>
+          <Box sx={{ display: 'flex', justifyContent: 'center', mb: 2 }}>
+            <RandomCorpLogo size={80} variant="icon-only" />
+          </Box>
           <Typography variant="h1" component="h1" gutterBottom>
             Random Corp
           </Typography>

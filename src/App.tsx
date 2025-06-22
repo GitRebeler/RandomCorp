@@ -34,6 +34,7 @@ import { Route, BrowserRouter as Router, Routes, useLocation, useNavigate } from
 // Import components
 import AppBreadcrumbs from './components/AppBreadcrumbs';
 import HomePage from './components/HomePage';
+import RandomCorpLogo from './components/RandomCorpLogo';
 import ReportingPage from './components/ReportingPage';
 import VideosPage from './components/VideosPage';
 
@@ -192,29 +193,12 @@ const AppLayout: React.FC<AppLayoutProps> = ({ darkMode, toggleDarkMode }) => {
             >
               {mobileMenuOpen ? <Close /> : <MenuIcon />}
             </IconButton>
-          )}
-
-          {/* Random Corp branding - clickable */}
-          <Typography 
-            variant="h6" 
-            component="button"
+          )}          {/* Random Corp branding - clickable */}
+          <RandomCorpLogo 
+            size={isMobile ? 32 : 40}
+            variant={isMobile ? 'compact' : 'default'}
             onClick={handleBrandingClick}
-            sx={{ 
-              fontWeight: 600,
-              color: 'primary.main',
-              mr: 3,
-              fontSize: { xs: '14px', sm: '16px' },
-              flexGrow: isMobile ? 1 : 0,
-              border: 'none',
-              background: 'none',
-              cursor: 'pointer',
-              '&:hover': {
-                opacity: 0.8,
-              },
-            }}
-          >
-            Random Corp
-          </Typography>
+          />
 
           {/* Desktop Navigation Items */}
           {!isMobile && (
