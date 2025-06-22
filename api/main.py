@@ -10,6 +10,7 @@ from typing import Optional, Dict, List
 from datetime import datetime, timezone
 import json
 import time
+from database import db_manager
 
 # Configure logging based on environment
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
@@ -27,9 +28,28 @@ if debug_mode:
 
 app = FastAPI(
     title="Random Corp API",
-    description="Asynchronous API for processing name submissions with enhanced performance",
-    version="2.0.0"
+    description="Asynchronous API with SQL Server backend for processing name submissions",
+    version="2.1.0"
 )
+
+# Startup and shutdown events
+@app.on_event("startup")
+async def startup_event():
+    """Initialize database connection on startup"""
+    logger.info("🚀 Starting Random Corp API...")
+    try:
+        await db_manager.initialize()
+        logger.info("✅ API startup completed successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to start API: {str(e)}")
+        raise
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Close database connections on shutdown"""
+    logger.info("🛑 Shutting down Random Corp API...")
+    await db_manager.close()
+    logger.info("✅ API shutdown completed")
 
 # Add CORS middleware
 app.add_middleware(
@@ -58,12 +78,6 @@ async def add_process_time_header(request: Request, call_next):
         logger.debug(f"⏱️ Request completed in {process_time:.3f}s: {request.method} {request.url.path}")
     
     return response
-
-# In-memory storage for demonstration (in production, use async database)
-submission_store: Dict[str, List[Dict]] = {
-    "submissions": [],
-    "stats": {"total_submissions": 0, "last_submission": None}
-}
 
 class SubmissionRequest(BaseModel):
     firstName: str
@@ -132,24 +146,17 @@ app_start_time = datetime.now(timezone.utc)
 
 # Async helper functions
 async def simulate_database_save(data: Dict) -> str:
-    """Simulate async database save operation"""
+    """Generate submission ID for database save (actual save happens in background)"""
     if debug_mode:
-        logger.debug(f"💾 Simulating database save for: {data.get('firstName', 'Unknown')}")
+        logger.debug(f"💾 Preparing submission for SQL Server: {data.get('first_name', 'Unknown')}")
     
-    # Simulate network/database delay
-    await asyncio.sleep(0.1 + random.uniform(0.05, 0.2))
+    # Simulate processing delay
+    await asyncio.sleep(0.05 + random.uniform(0.02, 0.1))
     
     submission_id = f"sub_{random.randint(10000, 99999)}_{int(datetime.now().timestamp())}"
     
-    # Store in memory (in production, this would be an async database call)
-    submission_store["submissions"].append({
-        **data,
-        "submission_id": submission_id,
-        "timestamp": datetime.now(timezone.utc).isoformat()
-    })
-    
     if debug_mode:
-        logger.debug(f"✅ Database save completed with ID: {submission_id}")
+        logger.debug(f"✅ Generated submission ID: {submission_id}")
     
     return submission_id
 
@@ -190,12 +197,24 @@ async def log_submission_async(submission_data: Dict) -> None:
         logger.error(f"❌ Failed to write async log: {str(e)}")
 
 async def update_stats_async() -> None:
-    """Update application statistics asynchronously"""
-    submission_store["stats"]["total_submissions"] += 1
-    submission_store["stats"]["last_submission"] = datetime.now(timezone.utc)
-    
-    if debug_mode:
-        logger.debug(f"📊 Stats updated: {submission_store['stats']['total_submissions']} total submissions")
+    """Update application statistics in SQL Server database"""
+    try:
+        await db_manager.update_statistics({})
+        
+        if debug_mode:
+            stats = await db_manager.get_statistics()
+            logger.debug(f"📊 Stats updated in database: {stats['total_submissions']} total submissions")
+    except Exception as e:
+        logger.error(f"❌ Failed to update stats: {str(e)}")
+
+async def save_complete_submission(submission_data: Dict) -> None:
+    """Save complete submission data to database in background"""
+    try:
+        await db_manager.save_submission(submission_data)
+        if debug_mode:
+            logger.debug(f"💾 Complete submission saved to database: {submission_data['submission_id']}")
+    except Exception as e:
+        logger.error(f"❌ Failed to save complete submission: {str(e)}")
 
 @app.get("/")
 async def root():
@@ -207,15 +226,17 @@ async def root():
         await asyncio.sleep(0.001)
         
         return {
-            "message": "Random Corp API is running",
-            "version": "2.0.0",
+            "message": "Random Corp API is running",            "version": "2.1.0",
             "status": "healthy",
             "async_enabled": True,
+            "database_enabled": True,
             "debug_mode": debug_mode,
             "uptime_seconds": uptime,
             "endpoints": {
                 "submit": "/api/submit",
+                "batch_submit": "/api/submit/batch",
                 "stats": "/api/stats",
+                "submissions": "/api/submissions",
                 "health": "/health"
             }
         }
@@ -238,11 +259,10 @@ async def submit_names(submission: SubmissionRequest, background_tasks: Backgrou
     try:
         full_name = f"{submission.firstName} {submission.lastName}"
         logger.info(f"🚀 Processing async submission for: {full_name}")
-        
-        # Prepare submission data
+          # Prepare submission data for database
         submission_data = {
-            "firstName": submission.firstName,
-            "lastName": submission.lastName,
+            "first_name": submission.firstName,
+            "last_name": submission.lastName,
             "timestamp": start_time.isoformat()
         }
         
@@ -260,22 +280,31 @@ async def submit_names(submission: SubmissionRequest, background_tasks: Backgrou
         
         # Generate a random positive message
         message = random.choice(POSITIVE_MESSAGES)
+          # Calculate processing time
+        end_time = datetime.now(timezone.utc)
+        processing_time = (end_time - start_time).total_seconds()
         
         # Update stats asynchronously in background
         background_tasks.add_task(update_stats_async)
-        
-        # Log submission in background (fire-and-forget)
+          # Log submission in background (fire-and-forget)
         log_data = {
             **submission_data,
             "submission_id": submission_id,
             "external_data": external_data,
-            "message": message
+            "message": message,
+            "processing_time": processing_time
         }
         background_tasks.add_task(log_submission_async, log_data)
         
-        # Calculate processing time
-        end_time = datetime.now(timezone.utc)
-        processing_time = (end_time - start_time).total_seconds()
+        # Save complete submission data to database in background
+        db_submission_data = {
+            **submission_data,
+            "submission_id": submission_id,
+            "message": message,
+            "external_data": external_data,
+            "processing_time": processing_time
+        }
+        background_tasks.add_task(save_complete_submission, db_submission_data)
           # Create response
         response = SubmissionResponse(
             firstName=submission.firstName,
@@ -312,11 +341,10 @@ async def submit_names_batch(batch_request: BatchSubmissionRequest, background_t
         async def process_single_submission(submission: SubmissionRequest) -> SubmissionResponse:
             """Process a single submission within the batch"""
             full_name = f"{submission.firstName} {submission.lastName}"
-            
-            # Prepare submission data
+              # Prepare submission data for database
             submission_data = {
-                "firstName": submission.firstName,
-                "lastName": submission.lastName,
+                "first_name": submission.firstName,
+                "last_name": submission.lastName,
                 "timestamp": datetime.now(timezone.utc).isoformat(),
                 "batch_id": batch_id
             }
@@ -389,7 +417,7 @@ async def submit_names_batch(batch_request: BatchSubmissionRequest, background_t
 @app.get("/api/stats", response_model=StatsResponse)
 async def get_stats():
     """
-    Get comprehensive API statistics asynchronously
+    Get comprehensive API statistics from SQL Server database
     """
     try:
         # Calculate uptime
@@ -397,29 +425,61 @@ async def get_stats():
         uptime = (current_time - app_start_time).total_seconds()
         
         if debug_mode:
-            logger.debug(f"📊 Generating async stats report - Uptime: {uptime:.1f}s")
-        
-        # Simulate async stats gathering (in production, this might query multiple databases)
-        await asyncio.sleep(0.01)  # Simulate minimal async operation
-        
+            logger.debug(f"📊 Generating async stats report from database - Uptime: {uptime:.1f}s")
+          # Get stats from database
+        db_stats = await db_manager.get_statistics()
+          # Extract last submission timestamp
+        latest_sub = db_stats["latest_submission"]
+        last_submission_time = None
+        if latest_sub and latest_sub.get('timestamp'):
+            try:
+                last_submission_time = datetime.fromisoformat(latest_sub['timestamp'].replace('Z', '+00:00'))
+            except:
+                last_submission_time = None
+
         stats = StatsResponse(
             total_messages=len(POSITIVE_MESSAGES),
-            total_submissions=submission_store["stats"]["total_submissions"],
-            api_version="2.0.0",
+            total_submissions=db_stats["total_submissions"],
+            api_version="2.1.0",
             status="operational",
             debug_mode=debug_mode,
-            last_submission=submission_store["stats"]["last_submission"],
+            last_submission=last_submission_time,
             uptime_seconds=uptime
         )
         
         if debug_mode:
-            logger.debug(f"📈 Stats report generated: {stats.total_submissions} submissions, {uptime:.1f}s uptime")
+            logger.debug(f"📈 Stats report generated from database: {stats.total_submissions} submissions, {uptime:.1f}s uptime")
         
         return stats
         
     except Exception as e:
-        logger.error(f"❌ Error generating async stats: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error retrieving API statistics")
+        logger.error(f"❌ Error generating async stats from database: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving API statistics from database")
+
+@app.get("/api/submissions")
+async def get_recent_submissions(limit: int = 10, offset: int = 0):
+    """
+    Get recent submissions from SQL Server database
+    """
+    try:
+        if debug_mode:
+            logger.debug(f"📋 Retrieving {limit} submissions from database (offset: {offset})")
+        
+        submissions = await db_manager.get_recent_submissions(limit=limit)
+        
+        if debug_mode:
+            logger.debug(f"📄 Retrieved {len(submissions)} submissions from database")
+        
+        return {
+            "submissions": submissions,
+            "count": len(submissions),
+            "limit": limit,
+            "offset": offset
+        }
+        
+    except Exception as e:
+        logger.error(f"❌ Error retrieving submissions from database: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving submissions from database")
 
 if __name__ == "__main__":
     import uvicorn
