@@ -7,8 +7,8 @@ Write-Host ""
 # Step 1: Check if cluster exists
 Write-Host "Step 1: Checking cluster status..." -ForegroundColor Cyan
 $clusters = linode-cli lke clusters-list --text --no-header 2>$null
-if ($clusters -match "492019") {
-    Write-Host "✅ Cluster 492019 exists and ready" -ForegroundColor Green
+if ($clusters -match "randomcorp-lke") {
+    Write-Host "✅ Cluster randomcorp-lke exists and ready" -ForegroundColor Green
 } else {
     Write-Host "❌ Cluster not found. Run: .\create-lke-cluster.ps1" -ForegroundColor Red
     exit 1

@@ -1,97 +1,144 @@
-# PowerShell script to create Linode LKE cluster
-# For Windows users who prefer PowerShell
+# Create Linode Kubernetes Engine (LKE) cluster for Random Corp
+# This script creates a 3-node LKE cluster with proper configuration
 
 param(
     [string]$ClusterName = "randomcorp-lke",
-    [string]$Region = "us-east",
-    [string]$NodeType = "g6-standard-1",  # g6-standard-1 ($10/mo) - Nanodes not supported in LKE
+    [string]$Region = "us-east", 
+    [string]$NodeType = "g6-standard-1",
     [int]$NodeCount = 3,
-    [string]$K8sVersion = "1.31"  # Use available version
+    [string]$KubernetesVersion = "1.31",
+    [switch]$WhatIf
 )
 
-Write-Host "🚀 Creating Linode LKE cluster: $ClusterName" -ForegroundColor Green
-Write-Host "Region: $Region"
-Write-Host "Node Type: $NodeType"
-Write-Host "Node Count: $NodeCount"
-Write-Host "Kubernetes Version: $K8sVersion"
+Write-Host "=== Linode Kubernetes Engine Cluster Creation ===" -ForegroundColor Green
 Write-Host ""
 
-# Check if linode-cli is available
+# Check if linode-cli is installed
+if (-not (Get-Command "linode-cli" -ErrorAction SilentlyContinue)) {
+    Write-Host "linode-cli not found. Please install it first:" -ForegroundColor Red
+    Write-Host "pip install linode-cli" -ForegroundColor Yellow
+    Write-Host "Then configure with: linode-cli configure" -ForegroundColor Yellow
+    exit 1
+}
+
+# Validate parameters
+Write-Host "Cluster Configuration:" -ForegroundColor Cyan
+Write-Host "  Name: $ClusterName" -ForegroundColor White
+Write-Host "  Region: $Region" -ForegroundColor White
+Write-Host "  Node Type: $NodeType" -ForegroundColor White
+Write-Host "  Node Count: $NodeCount" -ForegroundColor White
+Write-Host "  Kubernetes Version: $KubernetesVersion" -ForegroundColor White
+Write-Host ""
+
+if ($WhatIf) {
+    Write-Host "WhatIf Mode - No actual changes will be made" -ForegroundColor Yellow
+    Write-Host ""
+    Write-Host "Would create LKE cluster with the following command:" -ForegroundColor Cyan
+    Write-Host "linode-cli lke cluster-create --label $ClusterName --region $Region --k8s_version $KubernetesVersion --node_pools.type $NodeType --node_pools.count $NodeCount" -ForegroundColor Gray
+    Write-Host ""
+    Write-Host "Estimated monthly cost: ~42 USD/month" -ForegroundColor Yellow
+    Write-Host "To proceed, run without -WhatIf parameter" -ForegroundColor Green
+    exit 0
+}
+
+# Check if cluster already exists
+Write-Host "Checking if cluster already exists..." -ForegroundColor Cyan
 try {
-    $null = & linode-cli --version 2>$null
-    Write-Host "✅ linode-cli found" -ForegroundColor Green
+    $existingClusters = linode-cli lke clusters-list --json 2>$null | ConvertFrom-Json
+    if ($existingClusters) {
+        $existingCluster = $existingClusters | Where-Object { $_.label -eq $ClusterName }
+        if ($existingCluster) {
+            Write-Host "Cluster '$ClusterName' already exists (ID: $($existingCluster.id))" -ForegroundColor Green
+            Write-Host "Status: $($existingCluster.status)" -ForegroundColor Yellow
+            exit 0
+        }
+    }
 } catch {
-    Write-Host "❌ linode-cli not found. Please install:" -ForegroundColor Red
-    Write-Host "pip install linode-cli"
-    Write-Host "linode-cli configure"
-    exit 1
+    Write-Host "Unable to check existing clusters, proceeding with creation..." -ForegroundColor Yellow
 }
 
-Write-Host "📋 Creating LKE cluster..." -ForegroundColor Yellow
+# Create the cluster
+Write-Host "Creating LKE cluster..." -ForegroundColor Cyan
+Write-Host "This may take 5-10 minutes..." -ForegroundColor Yellow
 
-# Create the cluster - properly escape arguments for PowerShell
 try {
-    $clusterId = & linode-cli lke cluster-create --label $ClusterName --region $Region --k8s_version $K8sVersion --node_pools.type $NodeType --node_pools.count $NodeCount --text --no-header --format="id"
-    $clusterId = $clusterId.Trim()
-} catch {
-    Write-Host "❌ Failed to create cluster: $($_.Exception.Message)" -ForegroundColor Red
-    exit 1
-}
+    $clusterId = linode-cli lke cluster-create --label $ClusterName --region $Region --k8s_version $KubernetesVersion --node_pools.type $NodeType --node_pools.count $NodeCount --text --no-header --format id
 
-if (-not $clusterId -or $clusterId -eq "") {
-    Write-Host "❌ Failed to create cluster - no cluster ID returned" -ForegroundColor Red
-    exit 1
-}
-
-Write-Host "✅ Cluster created with ID: $clusterId" -ForegroundColor Green
-Write-Host 'Waiting for cluster to be ready (may take 5-10 minutes)...' -ForegroundColor Yellow
-
-# Wait for cluster to be ready
-do {
-    try {
-        $status = & linode-cli lke cluster-view $clusterId --text --no-header --format="status"
-        $status = $status.Trim()
+    if ($LASTEXITCODE -eq 0 -and $clusterId) {
+        $clusterId = $clusterId.Trim()
+        Write-Host "Cluster created successfully!" -ForegroundColor Green
+        Write-Host "Cluster ID: $clusterId" -ForegroundColor White
+        Write-Host ""
+        
+        # Wait for cluster to be ready
+        Write-Host "Waiting for cluster to be ready..." -ForegroundColor Cyan
+        $attempt = 0
+        $maxAttempts = 20
+        
+        do {
+            Start-Sleep -Seconds 30
+            $attempt++
+            $status = linode-cli lke cluster-view $clusterId --text --no-header --format status
+            $status = $status.Trim()
+            Write-Host "[$attempt/$maxAttempts] Current status: $status" -ForegroundColor Yellow
+            
+            if ($status -eq "ready") {
+                break
+            }
+            
+            if ($attempt -ge $maxAttempts) {
+                Write-Host "Timeout waiting for cluster. Check Linode Cloud Manager for status." -ForegroundColor Yellow
+                break
+            }
+        } while ($status -ne "ready")
         
         if ($status -eq "ready") {
-            Write-Host "✅ Cluster is ready!" -ForegroundColor Green
-            break
+            Write-Host "Cluster is ready!" -ForegroundColor Green
+            
+            # Download kubeconfig
+            Write-Host "Downloading kubeconfig..." -ForegroundColor Cyan
+            $kubeconfigFile = "kubeconfig-$ClusterName.yaml"
+            linode-cli lke kubeconfig-view $clusterId --no-headers --text | Out-File -FilePath $kubeconfigFile -Encoding UTF8
+            
+            Write-Host ""
+            Write-Host "Next steps:" -ForegroundColor Cyan
+            Write-Host "1. Set KUBECONFIG:" -ForegroundColor White
+            Write-Host "   `$env:KUBECONFIG = `"$(Get-Location)\$kubeconfigFile`"" -ForegroundColor Gray
+            Write-Host "2. Test connection:" -ForegroundColor White
+            Write-Host "   kubectl get nodes" -ForegroundColor Gray
+            Write-Host "3. Deploy app:" -ForegroundColor White
+            Write-Host "   .\deploy-app.ps1" -ForegroundColor Gray
         }
-        Write-Host "Cluster status: $status (waiting...)" -ForegroundColor Yellow
-        Start-Sleep 30
-    } catch {
-        Write-Host "⚠️ Error checking cluster status, retrying..." -ForegroundColor Yellow
-        Start-Sleep 30
+    } else {
+        Write-Host "Failed to create cluster" -ForegroundColor Red
+        exit 1
     }
-} while ($true)
-
-# Download kubeconfig
-Write-Host "📥 Downloading kubeconfig..." -ForegroundColor Yellow
-try {
-    $kubeconfigContent = & linode-cli lke kubeconfig-view $clusterId --text --no-header
-    $kubeconfigContent | Out-File -FilePath "kubeconfig-randomcorp.yaml" -Encoding UTF8
-    Write-Host "✅ Kubeconfig saved to kubeconfig-randomcorp.yaml" -ForegroundColor Green
 } catch {
-    Write-Host "❌ Failed to download kubeconfig: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "Error creating cluster: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 
+# Check cluster status with proper command
+Write-Host "Checking cluster status..." -ForegroundColor Cyan
+$statusOutput = linode-cli lke cluster-view $clusterId --text --no-header --format status
+Write-Host "Raw status output: '$statusOutput'" -ForegroundColor Gray
+
+# Quick setup commands for immediate use
 Write-Host ""
-Write-Host "🎉 LKE cluster created successfully!" -ForegroundColor Green
+Write-Host "=== QUICK SETUP ===" -ForegroundColor Green
+Write-Host "Your cluster ID is: $clusterId" -ForegroundColor White
 Write-Host ""
-Write-Host "Next steps:"
-Write-Host "1. Set kubeconfig: " -NoNewline
-Write-Host "`$env:KUBECONFIG = `"$(Get-Location)\kubeconfig-randomcorp.yaml`"" -ForegroundColor Cyan
-Write-Host "2. Verify cluster: " -NoNewline
-Write-Host "kubectl get nodes" -ForegroundColor Cyan
-Write-Host "3. Install Flux: " -NoNewline
-Write-Host ".\install-flux.ps1" -ForegroundColor Cyan
-Write-Host "4. Deploy application: " -NoNewline
-Write-Host ".\deploy-app.ps1" -ForegroundColor Cyan
+Write-Host "Download kubeconfig:" -ForegroundColor Cyan
+Write-Host "linode-cli lke kubeconfig-view $clusterId --no-headers --text > kubeconfig-randomcorp.yaml" -ForegroundColor Gray
 Write-Host ""
-Write-Host "Cluster Details:"
-Write-Host "- Cluster ID: $clusterId"
-Write-Host "- Name: $ClusterName"
-Write-Host "- Region: $Region"
-Write-Host "- Nodes: $NodeCount x $NodeType"
-$monthlyCost = ($NodeCount * 5) + 12
-Write-Host "- Monthly Cost: ~`$${monthlyCost} including NodeBalancer and storage"
+Write-Host "Set kubeconfig:" -ForegroundColor Cyan  
+Write-Host "`$env:KUBECONFIG = `"$(Get-Location)\kubeconfig-randomcorp.yaml`"" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Test cluster:" -ForegroundColor Cyan
+Write-Host "kubectl get nodes" -ForegroundColor Gray
+Write-Host ""
+Write-Host "Deploy app:" -ForegroundColor Cyan
+Write-Host ".\deploy-app.ps1" -ForegroundColor Gray
+
+Write-Host ""
+Write-Host "=== Cluster Creation Complete ===" -ForegroundColor Green
