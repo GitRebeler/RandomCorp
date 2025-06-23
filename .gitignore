@@ -6,8 +6,8 @@ yarn-error.log*
 
 # Exclude specific files
 github-token.txt
-kubeconfig-decoded.yaml
-kubeconfig-randomcorp.yaml
+infra/linode/kubeconfig-decoded.yaml
+infra/linode/kubeconfig-randomcorp.yaml
 
 # Production build
 build/
