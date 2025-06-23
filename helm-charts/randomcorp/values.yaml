@@ -3,7 +3,7 @@
 replicaCount: 2
 
 image:
-  repository: docker.io/gitrebeler/randomcorp  # Update with your Docker Hub username
+  repository: docker.io/johnhebeler/randomcorp  # Update with your container registry
   tag: "latest"
   pullPolicy: IfNotPresent
 
@@ -14,7 +14,7 @@ service:
 
 frontend:
   image:
-    repository: docker.io/gitrebeler/randomcorp-frontend
+    repository: docker.io/johnhebeler/randomcorp-frontend
     tag: "latest"
   service:
     type: LoadBalancer

@@ -2,9 +2,9 @@
 # This creates the necessary Kubernetes manifests and Helm charts
 
 param(
-    [string]$GitHubUser = "your-github-username",  # Change this!
+    [string]$GitHubUser = "GitRebeler",  # Change this!
     [string]$GitHubRepo = "RandomCorp",
-    [string]$Registry = "your-registry"  # e.g., "docker.io/yourusername"
+    [string]$Registry = "docker.io/johnhebeler"  # e.g., "docker.io/yourusername"
 )
 
 Write-Host "=== Setting up Random Corp application deployment ===" -ForegroundColor Green
