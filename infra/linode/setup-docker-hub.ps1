@@ -2,7 +2,7 @@
 # This script helps you get started with Docker Hub as your container registry
 
 param(
-    [string]$DockerHubUsername = "gitrebeler",  # Your Docker Hub username
+    [string]$DockerHubUsername = "johnhebeler",  # Your Docker Hub username
     [string]$Tag = "latest"
 )
 

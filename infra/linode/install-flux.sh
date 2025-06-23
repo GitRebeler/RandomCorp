@@ -6,7 +6,7 @@
 set -e
 
 # Configuration
-GITHUB_USER="your-github-username"  # Change this!
+GITHUB_USER="GitRebeler"  # Change this!
 GITHUB_REPO="RandomCorp"
 GITHUB_TOKEN_FILE="github-token.txt"  # Create this file with your GitHub token
 FLUX_NAMESPACE="flux-system"
