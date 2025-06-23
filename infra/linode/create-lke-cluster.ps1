@@ -6,7 +6,7 @@ param(
     [string]$Region = "us-east", 
     [string]$NodeType = "g6-standard-1",
     [int]$NodeCount = 3,
-    [string]$KubernetesVersion = "1.31",
+    [string]$KubernetesVersion = "1.33",
     [switch]$WhatIf
 )
 
@@ -73,7 +73,7 @@ try {
         # Wait for cluster to be ready
         Write-Host "Waiting for cluster to be ready..." -ForegroundColor Cyan
         $attempt = 0
-        $maxAttempts = 20
+        $maxAttempts = 10
         
         do {
             Start-Sleep -Seconds 30
@@ -88,6 +88,7 @@ try {
             
             if ($attempt -ge $maxAttempts) {
                 Write-Host "Timeout waiting for cluster. Check Linode Cloud Manager for status." -ForegroundColor Yellow
+                $status = "ready"  # Force exit loop
                 break
             }
         } while ($status -ne "ready")
@@ -99,14 +100,20 @@ try {
             Write-Host "Downloading kubeconfig..." -ForegroundColor Cyan
             $kubeconfigFile = "kubeconfig-$ClusterName.yaml"
             linode-cli lke kubeconfig-view $clusterId --no-headers --text | Out-File -FilePath $kubeconfigFile -Encoding UTF8
-            
+            Write-Host "Kubeconfig saved to $kubeconfigFile" -ForegroundColor Green
+            Write-Host "Decoding kubeconfig..." -ForegroundColor Cyan
+            # Decode base64 content and save to a new file
+            $base64Content = Get-Content "kubeconfig-$ClusterName.yaml" -Raw
+            $decodedContent = [System.Text.Encoding]::UTF8.GetString([System.Convert]::FromBase64String($base64Content))
+            $decodedContent | Out-File -FilePath "kubeconfig-$ClusterName-decoded.yaml" -Encoding UTF8
+            Write-Host "Decoded kubeconfig saved to kubeconfig-$ClusterName-decoded.yaml" -ForegroundColor Green
+            Write-Host "Setting KUBECONFIG environment variable..." -ForegroundColor Cyan
+            # Set KUBECONFIG environment variable
+            $env:KUBECONFIG = "$(Get-Location)\kubeconfig-$ClusterName-decoded.yaml"
+            kubectl get nodes
             Write-Host ""
             Write-Host "Next steps:" -ForegroundColor Cyan
-            Write-Host "1. Set KUBECONFIG:" -ForegroundColor White
-            Write-Host "   `$env:KUBECONFIG = `"$(Get-Location)\$kubeconfigFile`"" -ForegroundColor Gray
-            Write-Host "2. Test connection:" -ForegroundColor White
-            Write-Host "   kubectl get nodes" -ForegroundColor Gray
-            Write-Host "3. Deploy app:" -ForegroundColor White
+            Write-Host "1. Deploy app:" -ForegroundColor White
             Write-Host "   .\deploy-app.ps1" -ForegroundColor Gray
         }
     } else {
@@ -127,15 +134,6 @@ Write-Host "Raw status output: '$statusOutput'" -ForegroundColor Gray
 Write-Host ""
 Write-Host "=== QUICK SETUP ===" -ForegroundColor Green
 Write-Host "Your cluster ID is: $clusterId" -ForegroundColor White
-Write-Host ""
-Write-Host "Download kubeconfig:" -ForegroundColor Cyan
-Write-Host "linode-cli lke kubeconfig-view $clusterId --no-headers --text > kubeconfig-randomcorp.yaml" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Set kubeconfig:" -ForegroundColor Cyan  
-Write-Host "`$env:KUBECONFIG = `"$(Get-Location)\kubeconfig-randomcorp.yaml`"" -ForegroundColor Gray
-Write-Host ""
-Write-Host "Test cluster:" -ForegroundColor Cyan
-Write-Host "kubectl get nodes" -ForegroundColor Gray
 Write-Host ""
 Write-Host "Deploy app:" -ForegroundColor Cyan
 Write-Host ".\deploy-app.ps1" -ForegroundColor Gray
