@@ -1,0 +1,12 @@
+﻿apiVersion: v2
+name: randomcorp
+description: Random Corp FastAPI application with SQL Server
+type: application
+version: 0.1.0
+appVersion: "2.1.0"
+
+dependencies:
+  - name: mssql-linux
+    version: 0.11.0
+    repository: https://simcubeltd.github.io/simcube-helm-charts/
+    condition: sqlserver.enabled

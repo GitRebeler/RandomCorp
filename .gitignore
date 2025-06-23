@@ -44,3 +44,15 @@ api/*.pyc
 api/.pytest_cache/
 api/venv/
 api/.env
+
+# Kubernetes and Linode specific
+kubeconfig*.yaml
+*kubeconfig*
+*.kubeconfig
+
+# Helm
+helm-charts/*/charts/
+helm-charts/*/Chart.lock
+
+# Flux/GitOps
+clusters/*/flux-system/
