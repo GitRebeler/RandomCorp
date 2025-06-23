@@ -23,7 +23,7 @@ frontend:
 
 # SQL Server configuration
 sqlserver:
-  enabled: true
+  enabled: false  # Temporarily disabled due to Helm chart dependency issues
   acceptEula: true
   edition: Developer  # Free for dev/test
   saPassword: "RandomCorp123!"  # Change this!
