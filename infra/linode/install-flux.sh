@@ -64,7 +64,7 @@ echo "🚀 Bootstrapping Flux..."
 flux bootstrap github \
     --owner="$GITHUB_USER" \
     --repository="$GITHUB_REPO" \
-    --branch=main \
+    --branch=master \
     --path=clusters/linode-lke \
     --personal \
     --token-auth

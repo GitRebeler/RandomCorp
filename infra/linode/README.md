@@ -119,7 +119,7 @@ spec:
 ```bash
 git add .
 git commit -m "Add Linode LKE deployment configuration"
-git push origin main
+git push origin master
 ```
 
 Flux will automatically detect changes and deploy!
@@ -144,7 +144,7 @@ kubectl logs -l app.kubernetes.io/component=api
 ## Architecture
 
 ```
-GitHub Repository (main branch)
+GitHub Repository (master branch)
     ↓ (Flux monitors)
 Linode LKE Cluster
     ├── flux-system namespace

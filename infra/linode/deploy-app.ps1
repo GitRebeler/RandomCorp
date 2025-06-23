@@ -379,7 +379,7 @@ metadata:
 spec:
   interval: 1m
   ref:
-    branch: main
+    branch: master
   url: https://github.com/$GitHubUser/$GitHubRepo
 "@
 
