@@ -17,7 +17,7 @@ if ($clusters -match "randomcorp-lke") {
 # Step 2: Check kubectl access
 Write-Host ""
 Write-Host "Step 2: Testing kubectl access..." -ForegroundColor Cyan
-$env:KUBECONFIG = "kubeconfig-decoded.yaml"
+$env:KUBECONFIG = "kubeconfig-randomcorp-lke-decoded.yaml"
 try {
     $nodes = kubectl get nodes --no-headers 2>$null
     $nodeCount = ($nodes | Measure-Object).Count
