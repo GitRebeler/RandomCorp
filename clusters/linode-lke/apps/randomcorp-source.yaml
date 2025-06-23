@@ -7,4 +7,4 @@ spec:
   interval: 1m
   ref:
     branch: main
-  url: https://github.com/your-github-username/RandomCorp
+  url: https://github.com/GitRebeler/RandomCorp

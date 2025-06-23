@@ -15,9 +15,9 @@ spec:
       interval: 1m
   values:
     image:
-      repository: your-registry/randomcorp
+      repository: docker.io/johnhebeler/randomcorp
       tag: "latest"
     frontend:
       image:
-        repository: your-registry/randomcorp-frontend
+        repository: docker.io/johnhebeler/randomcorp-frontend
         tag: "latest"
