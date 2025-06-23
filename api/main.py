@@ -12,6 +12,9 @@ import json
 import time
 from database import db_manager
 
+# Global in-memory storage for demo mode when database is not available
+in_memory_submissions = []
+
 # Configure logging based on environment
 log_level = os.getenv('LOG_LEVEL', 'INFO').upper()
 debug_mode = os.getenv('DEBUG', 'false').lower() == 'true'
@@ -32,17 +35,31 @@ app = FastAPI(
     version="2.1.0"
 )
 
+# Track application start time for uptime calculation
+app_start_time = datetime.now(timezone.utc)
+
 # Startup and shutdown events
 @app.on_event("startup")
 async def startup_event():
     """Initialize database connection on startup"""
     logger.info("🚀 Starting Random Corp API...")
     try:
-        await db_manager.initialize()
+        # Check if SQL Server environment variables are set
+        if os.getenv('SQL_SERVER_HOST'):
+            await db_manager.initialize()
+            logger.info("✅ Database initialized successfully")
+        else:
+            logger.info("🔄 Running in demo mode without database")
+            # Initialize in-memory storage for demo
+            global in_memory_submissions
+            in_memory_submissions = []
         logger.info("✅ API startup completed successfully")
     except Exception as e:
-        logger.error(f"❌ Failed to start API: {str(e)}")
-        raise
+        logger.error(f"⚠️ Database initialization failed, running in demo mode: {str(e)}")
+        # Initialize in-memory storage as fallback
+        global in_memory_submissions
+        in_memory_submissions = []
+        logger.info("✅ API started in demo mode")
 
 @app.on_event("shutdown")
 async def shutdown_event():
@@ -149,9 +166,6 @@ POSITIVE_MESSAGES = [
     "Perfect! Welcome to the Random Corp experience."
 ]
 
-# Track application start time for uptime calculation
-app_start_time = datetime.now(timezone.utc)
-
 # Async helper functions
 async def simulate_database_save(data: Dict) -> str:
     """Generate submission ID for database save (actual save happens in background)"""
@@ -216,13 +230,24 @@ async def update_stats_async() -> None:
         logger.error(f"❌ Failed to update stats: {str(e)}")
 
 async def save_complete_submission(submission_data: Dict) -> None:
-    """Save complete submission data to database in background"""
+    """Save complete submission data to database or in-memory storage"""
     try:
-        await db_manager.save_submission(submission_data)
-        if debug_mode:
-            logger.debug(f"💾 Complete submission saved to database: {submission_data['submission_id']}")
+        # Check if database is available
+        if os.getenv('SQL_SERVER_HOST') and hasattr(db_manager, 'pool') and db_manager.pool:
+            await db_manager.save_submission(submission_data)
+            if debug_mode:
+                logger.debug(f"💾 Complete submission saved to database: {submission_data['submission_id']}")
+        else:
+            # Save to in-memory storage for demo mode
+            global in_memory_submissions
+            in_memory_submissions.append(submission_data)
+            if debug_mode:
+                logger.debug(f"💾 Complete submission saved to memory: {submission_data['submission_id']}")
     except Exception as e:
-        logger.error(f"❌ Failed to save complete submission: {str(e)}")
+        logger.error(f"❌ Failed to save complete submission, falling back to memory: {str(e)}")
+        # Fallback to in-memory storage
+        global in_memory_submissions
+        in_memory_submissions.append(submission_data)
 
 @app.get("/")
 async def root():
@@ -425,7 +450,7 @@ async def submit_names_batch(batch_request: BatchSubmissionRequest, background_t
 @app.get("/api/stats", response_model=StatsResponse)
 async def get_stats():
     """
-    Get comprehensive API statistics from SQL Server database
+    Get comprehensive API statistics from database or in-memory storage
     """
     try:
         # Calculate uptime
@@ -433,63 +458,114 @@ async def get_stats():
         uptime = (current_time - app_start_time).total_seconds()
         
         if debug_mode:
-            logger.debug(f"📊 Generating async stats report from database - Uptime: {uptime:.1f}s")
-          # Get stats from database
-        db_stats = await db_manager.get_statistics()        # Extract last submission timestamp
-        latest_sub = db_stats["latest_submission"]
-        last_submission_time = None
-        latest_submission_obj = None
+            logger.debug(f"📊 Generating stats report - Uptime: {uptime:.1f}s")
         
-        if latest_sub and latest_sub.get('timestamp'):
-            try:
-                last_submission_time = datetime.fromisoformat(latest_sub['timestamp'].replace('Z', '+00:00'))
-                latest_submission_obj = LatestSubmission(
-                    id=latest_sub['id'],
-                    name=latest_sub['name'],
-                    timestamp=latest_sub['timestamp']
-                )
-            except:
-                last_submission_time = None
+        # Check if database is available
+        if os.getenv('SQL_SERVER_HOST') and hasattr(db_manager, 'pool') and db_manager.pool:
+            # Get stats from database
+            db_stats = await db_manager.get_statistics()
+            
+            # Extract last submission timestamp
+            latest_sub = db_stats["latest_submission"]
+            last_submission_time = None
+            latest_submission_obj = None
+            
+            if latest_sub and latest_sub.get('timestamp'):
+                try:
+                    last_submission_time = datetime.fromisoformat(latest_sub['timestamp'].replace('Z', '+00:00'))
+                    latest_submission_obj = LatestSubmission(
+                        id=latest_sub['id'],
+                        name=latest_sub['name'],
+                        timestamp=latest_sub['timestamp']
+                    )
+                except:
+                    last_submission_time = None
 
-        stats = StatsResponse(
-            total_messages=len(POSITIVE_MESSAGES),
-            total_submissions=db_stats["total_submissions"],
-            recent_submissions=db_stats.get("recent_submissions", 0),
-            avg_processing_time=db_stats.get("avg_processing_time", 0.0),
-            latest_submission=latest_submission_obj,
-            api_version="2.1.0",
-            status="operational",
-            debug_mode=debug_mode,
-            last_submission=last_submission_time,
-            uptime_seconds=uptime
-        )
+            stats = StatsResponse(
+                total_messages=len(POSITIVE_MESSAGES),
+                total_submissions=db_stats["total_submissions"],
+                recent_submissions=db_stats.get("recent_submissions", 0),
+                avg_processing_time=db_stats.get("avg_processing_time", 0.0),
+                latest_submission=latest_submission_obj,
+                api_version="2.1.0",
+                status="operational",
+                debug_mode=debug_mode,
+                last_submission=last_submission_time,
+                uptime_seconds=uptime
+            )
+        else:
+            # Use in-memory data for demo mode
+            global in_memory_submissions
+            total_submissions = len(in_memory_submissions)
+            
+            # Calculate average processing time from in-memory data
+            avg_processing_time = 0.0
+            if in_memory_submissions:
+                processing_times = [sub.get('processing_time', 0.0) for sub in in_memory_submissions]
+                avg_processing_time = sum(processing_times) / len(processing_times)
+            
+            # Get latest submission
+            latest_submission_obj = None
+            last_submission_time = None
+            if in_memory_submissions:
+                latest_sub = in_memory_submissions[-1]
+                latest_submission_obj = LatestSubmission(
+                    id=latest_sub.get('submission_id', 'demo'),
+                    name=f"{latest_sub.get('first_name', '')} {latest_sub.get('last_name', '')}".strip(),
+                    timestamp=latest_sub.get('timestamp', current_time.isoformat())
+                )
+                try:
+                    last_submission_time = datetime.fromisoformat(latest_sub.get('timestamp', current_time.isoformat()))
+                except:
+                    last_submission_time = current_time
+
+            stats = StatsResponse(
+                total_messages=len(POSITIVE_MESSAGES),
+                total_submissions=total_submissions,
+                recent_submissions=total_submissions,  # All submissions are recent in demo mode
+                avg_processing_time=avg_processing_time,
+                latest_submission=latest_submission_obj,
+                api_version="2.1.0",
+                status="demo_mode",                debug_mode=debug_mode,
+                last_submission=last_submission_time,
+                uptime_seconds=uptime
+            )
         
         if debug_mode:
-            logger.debug(f"📈 Stats report generated from database: {stats.total_submissions} submissions, {uptime:.1f}s uptime")
+            logger.debug(f"📈 Stats report generated: {stats.total_submissions} submissions, {uptime:.1f}s uptime")
         
         return stats
         
     except Exception as e:
-        logger.error(f"❌ Error generating async stats from database: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error retrieving API statistics from database")
+        logger.error(f"❌ Error generating stats: {str(e)}")
+        raise HTTPException(status_code=500, detail="Error retrieving API statistics")
 
 @app.get("/api/submissions")
 async def get_submissions(limit: int = 10, offset: int = 0):
     """
-    Get paginated submissions from SQL Server database
+    Get paginated submissions from database or in-memory storage
     """
     try:
         if debug_mode:
-            logger.debug(f"📋 Retrieving {limit} submissions from database (offset: {offset})")
+            logger.debug(f"📋 Retrieving {limit} submissions (offset: {offset})")
         
-        # Get paginated submissions
-        submissions = await db_manager.get_paginated_submissions(limit=limit, offset=offset)
-        
-        # Get total count for pagination
-        total_count = await db_manager.get_submissions_count()
+        # Check if database is available
+        if os.getenv('SQL_SERVER_HOST') and hasattr(db_manager, 'pool') and db_manager.pool:
+            # Get paginated submissions from database
+            submissions = await db_manager.get_paginated_submissions(limit=limit, offset=offset)
+            total_count = await db_manager.get_submissions_count()
+        else:
+            # Use in-memory data for demo mode
+            global in_memory_submissions
+            total_count = len(in_memory_submissions)
+            
+            # Apply pagination to in-memory data
+            start_idx = offset
+            end_idx = offset + limit
+            submissions = in_memory_submissions[start_idx:end_idx]
         
         if debug_mode:
-            logger.debug(f"📄 Retrieved {len(submissions)} submissions from database (total: {total_count})")
+            logger.debug(f"📄 Retrieved {len(submissions)} submissions (total: {total_count})")
         
         return {
             "submissions": submissions,
