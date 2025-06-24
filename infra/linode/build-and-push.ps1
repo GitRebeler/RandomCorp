@@ -5,13 +5,17 @@ param(
     [string]$Registry = "docker.io/johnhebeler",
     [string]$ApiImageName = "randomcorp",
     [string]$FrontendImageName = "randomcorp-frontend",
-    [string]$Tag = "latest"
+    [string]$Tag = "latest",
+    [string]$ApiUrl = ""
 )
 
 Write-Host "Building and pushing Random Corp Docker images" -ForegroundColor Green
 Write-Host "Registry: $Registry"
 Write-Host "API Image: $Registry/$ApiImageName`:$Tag"
 Write-Host "Frontend Image: $Registry/$FrontendImageName`:$Tag"
+if ($ApiUrl) {
+    Write-Host "Frontend API URL: $ApiUrl" -ForegroundColor Cyan
+}
 Write-Host ""
 
 # Check if Docker is running
@@ -80,9 +84,19 @@ $originalLocation = Get-Location
 try {
     Set-Location $rootPath
     Write-Host "Current directory: $(Get-Location)" -ForegroundColor Gray
-    Write-Host "Running: docker build -t `"$Registry/$FrontendImageName`:$Tag`" ." -ForegroundColor Gray
     
-    & docker build -t "$Registry/$FrontendImageName`:$Tag" .
+    # Prepare build command with API URL if provided
+    $buildCommand = "docker build -t `"$Registry/$FrontendImageName`:$Tag`""
+    if ($ApiUrl) {
+        $buildCommand += " --build-arg REACT_APP_API_URL=`"$ApiUrl`""
+        Write-Host "Using API URL: $ApiUrl" -ForegroundColor Cyan
+    } else {
+        Write-Host "No API URL provided - frontend will use relative URLs" -ForegroundColor Yellow
+    }
+    $buildCommand += " ."
+    
+    Write-Host "Running: $buildCommand" -ForegroundColor Gray
+    Invoke-Expression $buildCommand
     if ($LASTEXITCODE -ne 0) {
         throw "Docker build failed for Frontend with exit code: $LASTEXITCODE"
     }

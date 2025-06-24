@@ -24,6 +24,7 @@ import {
 import { styled } from '@mui/material/styles';
 import { format } from 'date-fns';
 import React, { useEffect, useState } from 'react';
+import { buildApiUrl } from '../config/api';
 
 const StyledTableContainer = styled(TableContainer)(({ theme }) => ({
   marginTop: theme.spacing(2),
@@ -87,7 +88,7 @@ const ReportingPage: React.FC = () => {
       setError(null);
       
       const offset = pageNum * limit;
-      const response = await fetch(`/api/submissions?limit=${limit}&offset=${offset}`);
+      const response = await fetch(buildApiUrl(`/api/submissions?limit=${limit}&offset=${offset}`));
       
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
@@ -102,10 +103,9 @@ const ReportingPage: React.FC = () => {
       setLoading(false);
     }
   };
-
   const fetchStatistics = async () => {
     try {
-      const response = await fetch('/api/stats');
+      const response = await fetch(buildApiUrl('/api/stats'));
       if (!response.ok) {
         throw new Error(`HTTP error! status: ${response.status}`);
       }

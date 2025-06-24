@@ -12,6 +12,7 @@ import {
 } from '@mui/material';
 import { styled } from '@mui/material/styles';
 import React, { useState } from 'react';
+import { buildApiUrl } from '../config/api';
 import RandomCorpLogo from './RandomCorpLogo';
 
 const HeaderSection = styled(Box)(({ theme }) => ({
@@ -78,9 +79,8 @@ const HomePage: React.FC = () => {
 
     setLoading(true);
     setError(null);
-    
-    try {
-      const response = await fetch('/api/submit', {
+      try {
+      const response = await fetch(buildApiUrl('/api/submit'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
