@@ -15,7 +15,8 @@ spec:
     metadata:
       labels:
         {{- include "randomcorp.selectorLabels" . | nindent 8 }}
-        app.kubernetes.io/component: frontend    spec:
+        app.kubernetes.io/component: frontend
+    spec:
       containers:
         - name: frontend
           image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
