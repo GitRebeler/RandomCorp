@@ -35,8 +35,8 @@ version: 0.1.0
 appVersion: "2.1.0"
 
 dependencies:
-  - name: mssql-linux
-    version: 0.11.0
+  - name: mssqlserver-2022
+    version: 1.2.3
     repository: https://simcubeltd.github.io/simcube-helm-charts/
     condition: sqlserver.enabled
 "@
@@ -70,20 +70,24 @@ frontend:
     targetPort: 80
 
 # SQL Server configuration
+mssqlserver-2022:
+  acceptEula:
+    value: "Y"
+  edition:
+    value: Developer  # Free for dev/test
+  sapassword: "RandomCorp123!"  # Change this!
+  dataSize: 20Gi
+  service:
+    type: ClusterIP
+    port: 1433
+
+# Configuration for when sqlserver dependency is enabled
 sqlserver:
   enabled: true
-  acceptEula: true
-  edition: Developer  # Free for dev/test
-  saPassword: "RandomCorp123!"  # Change this!
-  persistence:
-    enabled: true
-    size: 20Gi
-    storageClass: linode-block-storage-retain
 
 # Environment variables for API
-env:
-  - name: SQL_SERVER_HOST
-    value: "randomcorp-mssql-linux"
+env:  - name: SQL_SERVER_HOST
+    value: "randomcorp-mssqlserver-2022"  # Updated to match new chart service name
   - name: SQL_SERVER_PORT
     value: "1433"
   - name: SQL_SERVER_DATABASE
