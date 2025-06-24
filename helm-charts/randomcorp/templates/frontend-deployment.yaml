@@ -1,4 +1,4 @@
-apiVersion: apps/v1
+﻿apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: {{ include "randomcorp.fullname" . }}-frontend
@@ -20,8 +20,7 @@ spec:
       containers:
         - name: frontend
           image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
+          imagePullPolicy: {{ .Values.image.pullPolicy }}          ports:
             - name: http
               containerPort: 80
               protocol: TCP
