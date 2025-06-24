@@ -55,14 +55,12 @@ async def startup_event():
         else:
             logger.info("🔄 Running in demo mode without database")
             # Initialize in-memory storage for demo
-            global in_memory_submissions
-            in_memory_submissions = []
+            in_memory_submissions.clear()
         logger.info("✅ API startup completed successfully")
     except Exception as e:
         logger.error(f"⚠️ Database initialization failed, running in demo mode: {str(e)}")
         # Initialize in-memory storage as fallback
-        global in_memory_submissions
-        in_memory_submissions = []
+        in_memory_submissions.clear()
         logger.info("✅ API started in demo mode")
 
 @app.on_event("shutdown")
@@ -246,14 +244,12 @@ async def save_complete_submission(submission_data: Dict) -> None:
                 logger.debug(f"💾 Complete submission saved to database: {submission_data['submission_id']}")
         else:
             # Save to in-memory storage for demo mode
-            global in_memory_submissions
             in_memory_submissions.append(submission_data)
             if debug_mode:
                 logger.debug(f"💾 Complete submission saved to memory: {submission_data['submission_id']}")
     except Exception as e:
         logger.error(f"❌ Failed to save complete submission, falling back to memory: {str(e)}")
         # Fallback to in-memory storage
-        global in_memory_submissions
         in_memory_submissions.append(submission_data)
 
 @app.get("/")
@@ -509,7 +505,6 @@ async def get_stats():
             )
         else:
             # Use in-memory data for demo mode
-            global in_memory_submissions
             total_submissions = len(in_memory_submissions)
             
             # Calculate average processing time from in-memory data
@@ -570,9 +565,7 @@ async def get_submissions(limit: int = 10, offset: int = 0):
             # Get paginated submissions from database
             submissions = await db_manager.get_paginated_submissions(limit=limit, offset=offset)
             total_count = await db_manager.get_submissions_count()
-        else:
-            # Use in-memory data for demo mode
-            global in_memory_submissions
+        else:            # Use in-memory data for demo mode
             total_count = len(in_memory_submissions)
             
             # Apply pagination to in-memory data
