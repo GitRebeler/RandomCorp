@@ -67,7 +67,7 @@ frontend:
   service:
     type: LoadBalancer
     port: 80
-    targetPort: 3000
+    targetPort: 80
 
 # SQL Server configuration
 sqlserver:
@@ -210,10 +210,9 @@ spec:
       containers:
         - name: frontend
           image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}
-          ports:
+          imagePullPolicy: {{ .Values.image.pullPolicy }}          ports:
             - name: http
-              containerPort: 3000
+              containerPort: 80
               protocol: TCP
           livenessProbe:
             httpGet:
