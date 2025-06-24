@@ -4,8 +4,8 @@ replicaCount: 2
 
 image:
   repository: docker.io/johnhebeler/randomcorp  # Update with your container registry
-  tag: "v2.1.2"
-  pullPolicy: Always
+  tag: "latest"
+  pullPolicy: IfNotPresent
 
 service:
   type: LoadBalancer  # Will create Linode NodeBalancer
@@ -15,11 +15,11 @@ service:
 frontend:
   image:
     repository: docker.io/johnhebeler/randomcorp-frontend
-    tag: "v2.1.2"
+    tag: "latest"
   service:
     type: LoadBalancer
     port: 80
-    targetPort: 80
+    targetPort: 3000
 
 # SQL Server configuration
 sqlserver:
