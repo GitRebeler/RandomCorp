@@ -6,7 +6,7 @@ version: 0.1.0
 appVersion: "2.1.0"
 
 dependencies:
-  - name: mssql-linux
-    version: 1.0.9
+  - name: mssqlserver-2022
+    version: 1.2.3
     repository: https://simcubeltd.github.io/simcube-helm-charts/
     condition: sqlserver.enabled
