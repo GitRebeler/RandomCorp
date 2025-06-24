@@ -214,7 +214,8 @@ spec:
       containers:
         - name: frontend
           image: "{{ .Values.frontend.image.repository }}:{{ .Values.frontend.image.tag }}"
-          imagePullPolicy: {{ .Values.image.pullPolicy }}          ports:
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
             - name: http
               containerPort: 80
               protocol: TCP
