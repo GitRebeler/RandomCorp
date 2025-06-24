@@ -5,9 +5,8 @@ type: application
 version: 0.1.0
 appVersion: "2.1.0"
 
-# Temporarily commented out due to chart availability issues
-# dependencies:
-#   - name: mssql-linux
-#     version: 0.11.0
-#     repository: https://simcubeltd.github.io/simcube-helm-charts/
-#     condition: sqlserver.enabled
+dependencies:
+  - name: mssql-linux
+    version: 0.11.0
+    repository: https://simcubeltd.github.io/simcube-helm-charts/
+    condition: sqlserver.enabled

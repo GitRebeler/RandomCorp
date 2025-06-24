@@ -1,5 +1,5 @@
 # Check status of Linode LKE cluster and download kubeconfig when ready
-$clusterId = 492630
+$clusterId = 492773
 Write-Host "=== Linode LKE Cluster Status ===" -ForegroundColor Green
 Write-Host ""
 

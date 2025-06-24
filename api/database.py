@@ -15,13 +15,21 @@ logger = logging.getLogger(__name__)
 
 class DatabaseManager:
     def __init__(self):
-        self.host = os.getenv('DB_HOST', 'localhost')
+        self.host = os.getenv('DB_HOST')
+        logger.info(f"🔍 DatabaseManager init - DB_HOST: {self.host}")
         self.port = os.getenv('DB_PORT', '1433')
         self.database = os.getenv('DB_NAME', 'RandomCorpDB')
         self.username = os.getenv('DB_USER', 'sa')
         self.password = os.getenv('DB_PASSWORD', 'RandomCorp123!')
-        self.connection_string = self._build_connection_string()
+        self.connection_string = None
         self.pool = None
+        
+        # Only build connection string if host is provided
+        if self.host:
+            logger.info("🔗 Building database connection string...")
+            self.connection_string = self._build_connection_string()
+        else:
+            logger.info("🚫 No database host configured, skipping connection string")
         
     def _build_connection_string(self) -> str:
         """Build SQL Server connection string from environment variables"""
@@ -40,6 +48,9 @@ class DatabaseManager:
     
     async def initialize(self):
         """Initialize database connection pool and create tables"""
+        if not self.connection_string:
+            raise ValueError("Database host not configured - cannot initialize database")
+            
         try:
             logger.info("🚀 Initializing database connection pool...")
             
@@ -383,5 +394,12 @@ class DatabaseManager:
             await self.pool.wait_closed()
             logger.info("🔌 Database connection pool closed")
 
-# Global database manager instance
-db_manager = DatabaseManager()
+# Global database manager instance - initialized lazily
+db_manager = None
+
+def get_db_manager():
+    """Get or create the database manager instance"""
+    global db_manager
+    if db_manager is None:
+        db_manager = DatabaseManager()
+    return db_manager

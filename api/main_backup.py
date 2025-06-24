@@ -266,8 +266,7 @@ async def root():
         await asyncio.sleep(0.001)
         
         return {
-            "message": "Random Corp API is running",
-            "version": "2.1.0",
+            "message": "Random Corp API is running",            "version": "2.1.0",
             "status": "healthy",
             "async_enabled": True,
             "database_enabled": True,
@@ -300,8 +299,7 @@ async def submit_names(submission: SubmissionRequest, background_tasks: Backgrou
     try:
         full_name = f"{submission.firstName} {submission.lastName}"
         logger.info(f"🚀 Processing async submission for: {full_name}")
-        
-        # Prepare submission data for database
+          # Prepare submission data for database
         submission_data = {
             "first_name": submission.firstName,
             "last_name": submission.lastName,
@@ -322,15 +320,13 @@ async def submit_names(submission: SubmissionRequest, background_tasks: Backgrou
         
         # Generate a random positive message
         message = random.choice(POSITIVE_MESSAGES)
-        
-        # Calculate processing time
+          # Calculate processing time
         end_time = datetime.now(timezone.utc)
         processing_time = (end_time - start_time).total_seconds()
         
         # Update stats asynchronously in background
         background_tasks.add_task(update_stats_async)
-        
-        # Log submission in background (fire-and-forget)
+          # Log submission in background (fire-and-forget)
         log_data = {
             **submission_data,
             "submission_id": submission_id,
@@ -349,8 +345,7 @@ async def submit_names(submission: SubmissionRequest, background_tasks: Backgrou
             "processing_time": processing_time
         }
         background_tasks.add_task(save_complete_submission, db_submission_data)
-        
-        # Create response
+          # Create response
         response = SubmissionResponse(
             firstName=submission.firstName,
             lastName=submission.lastName,
@@ -386,8 +381,7 @@ async def submit_names_batch(batch_request: BatchSubmissionRequest, background_t
         async def process_single_submission(submission: SubmissionRequest) -> SubmissionResponse:
             """Process a single submission within the batch"""
             full_name = f"{submission.firstName} {submission.lastName}"
-            
-            # Prepare submission data for database
+              # Prepare submission data for database
             submission_data = {
                 "first_name": submission.firstName,
                 "last_name": submission.lastName,
@@ -540,8 +534,7 @@ async def get_stats():
                 avg_processing_time=avg_processing_time,
                 latest_submission=latest_submission_obj,
                 api_version="2.1.0",
-                status="demo_mode",
-                debug_mode=debug_mode,
+                status="demo_mode",                debug_mode=debug_mode,
                 last_submission=last_submission_time,
                 uptime_seconds=uptime
             )
@@ -556,8 +549,7 @@ async def get_stats():
         raise HTTPException(status_code=500, detail="Error retrieving API statistics")
 
 @app.get("/api/submissions")
-async def get_submissions(limit: int = 10, offset: int = 0):
-    """
+async def get_submissions(limit: int = 10, offset: int = 0):    """
     Get paginated submissions from database or in-memory storage
     """
     try:
