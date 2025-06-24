@@ -1,0 +1,64 @@
+# Production environment - LKE/Kubernetes
+# This configuration is optimized for Kubernetes deployment
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        # In production, the API URL would be the actual service URL
+        # This can be overridden by environment variables or CI/CD
+        - REACT_APP_API_URL=${REACT_APP_API_URL:-https://api.randomcorp.com}
+    ports:
+      - "3000:80"  # This will be handled by Kubernetes services
+    depends_on:
+      - api
+    # No volumes in production - everything is baked into the image
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - PYTHONUNBUFFERED=1
+      # In production, these would come from Kubernetes secrets
+      - DB_HOST=${DB_HOST:-sqlserver}
+      - DB_PORT=${DB_PORT:-1433}
+      - DB_NAME=${DB_NAME:-RandomCorpDB}
+      - DB_USER=${DB_USER:-sa}
+      - DB_PASSWORD=${DB_PASSWORD:-RandomCorp123!}
+      - DEBUG=${DEBUG:-false}
+    depends_on:
+      sqlserver:
+        condition: service_healthy
+    # No volumes in production
+    restart: unless-stopped
+
+  sqlserver:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    container_name: randomcorp-sqlserver
+    environment:
+      - ACCEPT_EULA=Y
+      - SA_PASSWORD=${SA_PASSWORD:-RandomCorp123!}
+      - MSSQL_PID=Express
+    ports:
+      - "1433:1433"
+    volumes:
+      - sqlserver_data:/var/opt/mssql
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "/opt/mssql-tools/bin/sqlcmd -S localhost -U sa -P '${SA_PASSWORD:-RandomCorp123!}' -Q 'SELECT 1' || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+
+volumes:
+  sqlserver_data:
+
+networks:
+  default:
+    driver: bridge

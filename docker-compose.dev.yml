@@ -1,5 +1,4 @@
-# Default configuration - Development environment
-# For production, use: docker-compose -f docker-compose.prod.yml up
+# Development environment - Docker Desktop
 services:
   frontend:
     build:

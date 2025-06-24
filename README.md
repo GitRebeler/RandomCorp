@@ -10,6 +10,43 @@ A modern web application built with React, Material UI, and FastAPI, styled simi
 - **Docker Support**: Full containerization with Docker Compose
 - **Form Validation**: Client and server-side validation
 - **Responsive Design**: Works on desktop and mobile devices
+- **Multi-Environment Support**: Separate configurations for development and production
+
+## Quick Start
+
+### Development (Docker Desktop)
+```bash
+# Using the convenience script
+.\start-dev.ps1
+
+# Or manually
+docker-compose --env-file .env.dev up --build
+```
+
+### Production (LKE/Kubernetes)
+```bash
+# Using the convenience script
+.\start-prod.ps1
+
+# Or manually
+docker-compose -f docker-compose.prod.yml --env-file .env.prod up --build -d
+```
+
+## Environment Configurations
+
+The application supports multiple deployment environments:
+
+- **Development** (`docker-compose.yml`): 
+  - Frontend runs on `http://localhost:3000` (mapped from container port 80)
+  - API runs on `http://localhost:8000`
+  - Local SQL Server database
+  - Hot reload for development
+  
+- **Production** (`docker-compose.prod.yml`):
+  - Optimized for Kubernetes/LKE deployment
+  - Environment variables for external database connection
+  - No development volumes mounted
+  - Production-ready configuration
 
 ## Project Structure
 
@@ -26,7 +63,13 @@ RandomCorp/
 ├── public/               # Static assets
 ├── package.json          # Frontend dependencies
 ├── Dockerfile           # Frontend Docker configuration
-├── docker-compose.yml   # Docker Compose configuration
+├── docker-compose.yml   # Development configuration
+├── docker-compose.dev.yml   # Development configuration (explicit)
+├── docker-compose.prod.yml  # Production configuration
+├── .env.dev             # Development environment variables
+├── .env.prod            # Production environment variables
+├── start-dev.ps1        # Development startup script
+├── start-prod.ps1       # Production startup script
 └── README.md           # This file
 ```
 

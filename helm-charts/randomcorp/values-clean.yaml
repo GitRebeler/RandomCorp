@@ -3,9 +3,9 @@
 replicaCount: 2
 
 image:
-  repository: docker.io/johnhebeler/randomcorp-backend
+  repository: docker.io/johnhebeler/randomcorp
   tag: "latest"
-  pullPolicy: Always
+  pullPolicy: IfNotPresent
 
 service:
   type: LoadBalancer
@@ -20,9 +20,6 @@ frontend:
     type: LoadBalancer
     port: 80
     targetPort: 80
-  # Environment variables for frontend build
-  env:
-    REACT_APP_API_URL: "http://api.randomcorp.lke"
 
 # SQL Server configuration
 mssqlserver-2022:
@@ -42,15 +39,15 @@ sqlserver:
 
 # Environment variables for API
 env:
-  - name: DB_HOST
+  - name: SQL_SERVER_HOST
     value: "randomcorp-mssqlserver-2022"
-  - name: DB_PORT
+  - name: SQL_SERVER_PORT
     value: "1433"
-  - name: DB_NAME
+  - name: SQL_SERVER_DATABASE
     value: "RandomCorpDB"
-  - name: DB_USER
+  - name: SQL_SERVER_USERNAME
     value: "sa"
-  - name: DB_PASSWORD
+  - name: SQL_SERVER_PASSWORD
     value: "RandomCorp123!"
   - name: DEBUG
     value: "false"

@@ -19,6 +19,10 @@ build/
 .env.test.local
 .env.production.local
 
+# Keep template environment files but ignore local overrides
+.env.dev.local
+.env.prod.local
+
 # IDE
 .vscode/
 .idea/
