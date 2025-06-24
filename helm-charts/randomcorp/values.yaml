@@ -1,14 +1,14 @@
-﻿# Random Corp Application Configuration
+# Random Corp Application Configuration
 
 replicaCount: 2
 
 image:
-  repository: docker.io/johnhebeler/randomcorp  # Update with your container registry
+  repository: docker.io/johnhebeler/randomcorp
   tag: "latest"
   pullPolicy: IfNotPresent
 
 service:
-  type: LoadBalancer  # Will create Linode NodeBalancer
+  type: LoadBalancer
   port: 80
   targetPort: 8000
 
@@ -26,8 +26,8 @@ mssqlserver-2022:
   acceptEula:
     value: "Y"
   edition:
-    value: Developer  # Free for dev/test
-  sapassword: "RandomCorp123!"  # Change this!
+    value: Developer
+  sapassword: "RandomCorp123!"
   dataSize: 20Gi
   service:
     type: ClusterIP
@@ -38,8 +38,9 @@ sqlserver:
   enabled: true
 
 # Environment variables for API
-env:  - name: SQL_SERVER_HOST
-    value: "randomcorp-mssqlserver-2022"  # Updated to match new chart service name
+env:
+  - name: SQL_SERVER_HOST
+    value: "randomcorp-mssqlserver-2022"
   - name: SQL_SERVER_PORT
     value: "1433"
   - name: SQL_SERVER_DATABASE
@@ -68,4 +69,4 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
 
 ingress:
-  enabled: false  # Using LoadBalancer instead
+  enabled: false

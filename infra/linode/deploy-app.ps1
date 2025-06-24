@@ -51,12 +51,12 @@ $valuesYaml = @"
 replicaCount: 2
 
 image:
-  repository: $Registry/randomcorp  # Update with your container registry
+  repository: $Registry/randomcorp
   tag: "latest"
   pullPolicy: IfNotPresent
 
 service:
-  type: LoadBalancer  # Will create Linode NodeBalancer
+  type: LoadBalancer
   port: 80
   targetPort: 8000
 
@@ -72,10 +72,9 @@ frontend:
 # SQL Server configuration
 mssqlserver-2022:
   acceptEula:
-    value: "Y"
-  edition:
-    value: Developer  # Free for dev/test
-  sapassword: "RandomCorp123!"  # Change this!
+    value: "Y"  edition:
+    value: Developer
+  sapassword: "RandomCorp123!"
   dataSize: 20Gi
   service:
     type: ClusterIP
@@ -86,7 +85,8 @@ sqlserver:
   enabled: true
 
 # Environment variables for API
-env:  - name: SQL_SERVER_HOST
+env:
+  - name: SQL_SERVER_HOST
     value: "randomcorp-mssqlserver-2022"  # Updated to match new chart service name
   - name: SQL_SERVER_PORT
     value: "1433"
@@ -116,7 +116,7 @@ autoscaling:
   targetCPUUtilizationPercentage: 80
 
 ingress:
-  enabled: false  # Using LoadBalancer instead
+  enabled: false
 "@
 
 $valuesYaml | Out-File -FilePath "..\..\helm-charts\randomcorp\values.yaml" -Encoding UTF8
