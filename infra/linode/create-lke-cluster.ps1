@@ -4,7 +4,7 @@
 param(
     [string]$ClusterName = "randomcorp-lke",
     [string]$Region = "us-east", 
-    [string]$NodeType = "g6-standard-1",
+    [string]$NodeType = "g6-standard-2",
     [int]$NodeCount = 3,
     [string]$KubernetesVersion = "1.33",
     [switch]$WhatIf
