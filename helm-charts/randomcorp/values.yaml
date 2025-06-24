@@ -4,7 +4,7 @@ replicaCount: 2
 
 image:
   repository: docker.io/johnhebeler/randomcorp  # Update with your container registry
-  tag: "v2.1.1"
+  tag: "v2.1.2"
   pullPolicy: Always
 
 service:
@@ -15,11 +15,11 @@ service:
 frontend:
   image:
     repository: docker.io/johnhebeler/randomcorp-frontend
-    tag: "v2.1.1"
+    tag: "v2.1.2"
   service:
     type: LoadBalancer
     port: 80
-    targetPort: 3000
+    targetPort: 80
 
 # SQL Server configuration
 sqlserver:
