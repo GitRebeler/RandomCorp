@@ -240,11 +240,14 @@ try {
         $attempt++
         Write-Host "Checking GitRepository status (attempt $attempt/$maxAttempts)..."
         
-        $gitRepoStatus = kubectl get gitrepository randomcorp-source -n flux-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>$null
+        $gitRepo = kubectl get gitrepository randomcorp-source -n flux-system -o json 2>$null | ConvertFrom-Json
         
-        if ($gitRepoStatus -eq "True") {
-            Write-Success "GitRepository is ready!"
-            break
+        if ($gitRepo -and $gitRepo.status.conditions) {
+            $readyCondition = $gitRepo.status.conditions | Where-Object { $_.type -eq "Ready" }
+            if ($readyCondition -and $readyCondition.status -eq "True") {
+                Write-Success "GitRepository is ready!"
+                break
+            }
         }
         
         if ($attempt -ge $maxAttempts) {
@@ -267,11 +270,14 @@ try {
         $attempt++
         Write-Host "Checking HelmRelease status (attempt $attempt/$maxAttempts)..."
         
-        $helmReleaseStatus = kubectl get helmrelease randomcorp -n default -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>$null
+        $helmRelease = kubectl get helmrelease randomcorp -n default -o json 2>$null | ConvertFrom-Json
         
-        if ($helmReleaseStatus -eq "True") {
-            Write-Success "HelmRelease is ready!"
-            break
+        if ($helmRelease -and $helmRelease.status.conditions) {
+            $readyCondition = $helmRelease.status.conditions | Where-Object { $_.type -eq "Ready" }
+            if ($readyCondition -and $readyCondition.status -eq "True") {
+                Write-Success "HelmRelease is ready!"
+                break
+            }
         }
         
         if ($attempt -ge $maxAttempts) {
