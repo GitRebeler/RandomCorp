@@ -193,11 +193,13 @@ try {
     # Step 6: Install Flux
     Write-Step "6" "Installing Flux"
     
-    & .\infra\linode\install-flux.ps1
+    Set-Location "infra\linode"
+    & .\install-flux.ps1
     
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to install Flux"
     }
+    Set-Location "..\.."
     Write-Success "Flux installed successfully"
 
     # Step 7: Wait for Flux Components
