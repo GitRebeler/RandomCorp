@@ -3,7 +3,7 @@
 replicaCount: 2
 
 image:
-  repository: docker.io/johnhebeler/randomcorp-backend
+  repository: docker.io/johnhebeler/randomcorp
   tag: "latest"
   pullPolicy: Always
 
