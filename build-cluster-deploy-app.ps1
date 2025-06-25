@@ -230,96 +230,57 @@ try {
         
     } while ($true)
 
-    # Step 8: Wait for GitRepository
-    Write-Step "8" "Waiting for GitRepository to be Ready"
+    # Step 8: Deploy Application using existing scripts
+    Write-Step "8" "Deploying Application"
     
-    $maxAttempts = 15
-    $attempt = 0
+    Write-Host "Checking current GitRepository status..."
+    kubectl get gitrepository -A
     
-    do {
-        $attempt++
-        Write-Host "Checking GitRepository status (attempt $attempt/$maxAttempts)..."
+    Write-Host ""
+    Write-Host "Waiting 60 seconds for Flux to sync and deploy the application..."
+    Start-Sleep -Seconds 60
+    
+    Write-Host ""
+    Write-Host "Current status after initial wait:"
+    kubectl get helmrelease -A 2>$null
+    kubectl get pods --all-namespaces | Where-Object { $_ -match "randomcorp" } 2>$null
+    
+    Write-Host ""
+    Write-Host "If no application pods are visible, we may need to create the HelmRelease manually..."
+    
+    # Check if HelmRelease exists
+    $helmReleaseExists = kubectl get helmrelease randomcorp -n default 2>$null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Warning "HelmRelease not found via Flux. Deploying manually with existing script..."
         
-        $gitRepo = kubectl get gitrepository randomcorp-source -n flux-system -o json 2>$null | ConvertFrom-Json
-        
-        if ($gitRepo -and $gitRepo.status.conditions) {
-            $readyCondition = $gitRepo.status.conditions | Where-Object { $_.type -eq "Ready" }
-            if ($readyCondition -and $readyCondition.status -eq "True") {
-                Write-Success "GitRepository is ready!"
-                break
-            }
+        Set-Location "infra\linode"
+        & .\deploy-app.ps1
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "Manual deployment script failed, but continuing..."
         }
-        
-        if ($attempt -ge $maxAttempts) {
-            Write-Warning "GitRepository may not be ready, continuing anyway..."
-            break
-        }
-        
-        Write-Host "GitRepository not ready yet, waiting 20 seconds..."
-        Start-Sleep -Seconds 20
-        
-    } while ($true)
+        Set-Location "..\.."
+    } else {
+        Write-Success "HelmRelease found via Flux!"
+    }
 
-    # Step 9: Wait for HelmRelease
-    Write-Step "9" "Waiting for HelmRelease to be Ready"
+    # Step 9: Wait for Application Deployment
+    Write-Step "9" "Waiting for Application Pods to Start"
     
-    $maxAttempts = 15
-    $attempt = 0
+    Write-Host "Waiting 2 minutes for pods to start..."
+    Start-Sleep -Seconds 120
     
-    do {
-        $attempt++
-        Write-Host "Checking HelmRelease status (attempt $attempt/$maxAttempts)..."
-        
-        $helmRelease = kubectl get helmrelease randomcorp -n default -o json 2>$null | ConvertFrom-Json
-        
-        if ($helmRelease -and $helmRelease.status.conditions) {
-            $readyCondition = $helmRelease.status.conditions | Where-Object { $_.type -eq "Ready" }
-            if ($readyCondition -and $readyCondition.status -eq "True") {
-                Write-Success "HelmRelease is ready!"
-                break
-            }
-        }
-        
-        if ($attempt -ge $maxAttempts) {
-            Write-Warning "HelmRelease may not be ready, continuing anyway..."
-            break
-        }
-        
-        Write-Host "HelmRelease not ready yet, waiting 20 seconds..."
-        Start-Sleep -Seconds 20
-        
-    } while ($true)
+    Write-Host ""
+    Write-Host "Checking pod status..."
+    kubectl get pods --all-namespaces | Where-Object { $_ -match "randomcorp" }
+    
+    Write-Host ""
+    Write-Host "Checking services..."
+    kubectl get services
+    
+    Write-Success "Initial deployment wait complete"
 
-    # Step 10: Wait for Application Pods
-    Write-Step "10" "Waiting for Application Pods to be Ready"
-    
-    $maxAttempts = 20
-    $attempt = 0
-    
-    do {
-        $attempt++
-        Write-Host "Checking application pods (attempt $attempt/$maxAttempts)..."
-        
-        $appPods = kubectl get pods -l app.kubernetes.io/name=randomcorp --no-headers 2>$null
-        $notReadyPods = $appPods | Where-Object { $_ -notmatch '\s+Running\s+' -and $_ -notmatch '\s+Completed\s+' }
-        
-        if (-not $notReadyPods -and $appPods) {
-            Write-Success "All application pods are ready!"
-            break
-        }
-        
-        if ($attempt -ge $maxAttempts) {
-            Write-Warning "Some application pods may not be ready, continuing anyway..."
-            break
-        }
-        
-        Write-Host "Some application pods not ready yet, waiting 15 seconds..."
-        Start-Sleep -Seconds 15
-        
-    } while ($true)
-
-    # Step 11: Get the actual API URL and rebuild frontend if needed
-    Write-Step "11" "Verifying API URL and Rebuilding Frontend if Needed"
+    # Step 10: Get the actual API URL and rebuild frontend if needed
+    Write-Step "10" "Verifying API URL and Rebuilding Frontend if Needed"
     
     $apiService = kubectl get service randomcorp-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
     
@@ -329,7 +290,7 @@ try {
         
         # Check if we need to rebuild the frontend with the correct API URL
         if ($apiUrl -ne $actualApiUrl) {
-            Write-Step "11.1" "Rebuilding Frontend with Correct API URL"
+            Write-Step "10.1" "Rebuilding Frontend with Correct API URL"
             
             & .\build-lke-images.ps1 -NoCache -ApiUrl $actualApiUrl -ForceUpdate
             
@@ -340,7 +301,7 @@ try {
             Write-Success "Frontend rebuilt with correct API URL"
             
             # Force restart of frontend deployment
-            Write-Step "11.2" "Restarting Frontend Deployment"
+            Write-Step "10.2" "Restarting Frontend Deployment"
             kubectl rollout restart deployment randomcorp-frontend
             
             # Wait for rollout to complete
@@ -352,8 +313,8 @@ try {
         Write-Warning "Could not get API service external IP"
     }
 
-    # Step 12: Final Verification
-    Write-Step "12" "Final Verification"
+    # Step 11: Final Verification
+    Write-Step "11" "Final Verification"
     
     Write-Host ""
     Write-Host "=== Cluster Status ===" -ForegroundColor Yellow
