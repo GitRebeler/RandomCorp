@@ -1,346 +1,396 @@
-# Complete LKE Cluster Creation and RandomCorp Deployment Script
-# This script orchestrates the entire process from cluster creation to application deployment
-#
-# Usage Examples:
-#   .\build-cluster-deploy-app.ps1
-#   .\build-cluster-deploy-app.ps1 -SkipClusterCreation
-#   .\build-cluster-deploy-app.ps1 -ApiUrl "http://your-api-ip"
-#
+# RandomCorp Automated Deployment Script
+# This script automates the full deployment of RandomCorp to Linode Kubernetes Engine (LKE)
+
 param(
+    [switch]$Force,
     [switch]$SkipClusterCreation,
-    [string]$ApiUrl = "",
-    [string]$ClusterName = "randomcorp-lke",
-    [int]$NodeCount = 3,
-    [int]$MaxRetries = 20,
-    [int]$RetryDelay = 30
+    [switch]$SkipImageBuild,
+    [switch]$Help
 )
 
-Write-Host "🚀 Starting Complete LKE Deployment Process..." -ForegroundColor Green
-Write-Host "=================================================" -ForegroundColor Green
-Write-Host ""
-
+# Set error action preference to stop on errors
 $ErrorActionPreference = "Stop"
-$startTime = Get-Date
 
-function Write-Step {
-    param($StepNumber, $Description)
+# Color functions for output
+function Write-Step($stepNumber, $message) {
+    Write-Host "[$stepNumber] $message" -ForegroundColor Cyan
+}
+
+function Write-Success($message) {
+    Write-Host "[SUCCESS] $message" -ForegroundColor Green
+}
+
+function Write-Warning($message) {
+    Write-Host "[WARNING] $message" -ForegroundColor Yellow
+}
+
+function Write-Error($message) {
+    Write-Host "[ERROR] $message" -ForegroundColor Red
+}
+
+function Show-Help {
+    Write-Host "RandomCorp Automated Deployment Script" -ForegroundColor Green
+    Write-Host "======================================" -ForegroundColor Green
     Write-Host ""
-    Write-Host "📋 Step $StepNumber`: $Description" -ForegroundColor Cyan
-    Write-Host "----------------------------------------" -ForegroundColor Gray
+    Write-Host "This script automates the full deployment of RandomCorp to Linode Kubernetes Engine (LKE)."
+    Write-Host ""
+    Write-Host "Usage: .\build-cluster-deploy-app.ps1 [OPTIONS]"
+    Write-Host ""
+    Write-Host "Options:"
+    Write-Host "  -Force                  Force recreate cluster even if it exists"
+    Write-Host "  -SkipClusterCreation   Skip cluster creation (use existing cluster)"
+    Write-Host "  -SkipImageBuild        Skip Docker image building"
+    Write-Host "  -Help                  Show this help message"
+    Write-Host ""
+    Write-Host "Example:"
+    Write-Host "  .\build-cluster-deploy-app.ps1                    # Full deployment"
+    Write-Host "  .\build-cluster-deploy-app.ps1 -Force             # Force recreate cluster"
+    Write-Host "  .\build-cluster-deploy-app.ps1 -SkipImageBuild    # Skip image building"
+    Write-Host ""
 }
 
-function Write-Success {
-    param($Message)
-    Write-Host "✅ $Message" -ForegroundColor Green
-}
-
-function Write-Warning {
-    param($Message)
-    Write-Host "⚠️ $Message" -ForegroundColor Yellow
-}
-
-function Write-Error {
-    param($Message)
-    Write-Host "❌ $Message" -ForegroundColor Red
+if ($Help) {
+    Show-Help
+    exit 0
 }
 
 try {
-    # Step 1: Create LKE Cluster (if not skipped)
+    Write-Host "Starting RandomCorp Automated Deployment" -ForegroundColor Magenta
+    Write-Host "=========================================" -ForegroundColor Magenta
+    Write-Host ""
+
+    # Ensure we're in the correct directory
+    $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path
+    Set-Location $scriptDir
+
+    # Step 1: Create LKE Cluster
     if (-not $SkipClusterCreation) {
-        Write-Step 1 "Creating LKE Cluster"
+        Write-Step "1" "Creating LKE Cluster"
         
-        Set-Location "infra\linode"
-        .\create-lke-cluster.ps1 -ClusterName $ClusterName -NodeCount $NodeCount
-        
-        if ($LASTEXITCODE -ne 0) {
-            throw "LKE cluster creation failed"
+        if ($Force) {
+            & .\infra\linode\create-lke-cluster.ps1 -Force
+        } else {
+            & .\infra\linode\create-lke-cluster.ps1
         }
         
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to create LKE cluster"
+        }
         Write-Success "LKE cluster created successfully"
-        
-        # Wait for all nodes to be ready
-        Write-Host "🔄 Waiting for all $NodeCount nodes to be ready..." -ForegroundColor Yellow
-        $retryCount = 0
-        $allNodesReady = $false
-        
-        while (-not $allNodesReady -and $retryCount -lt $MaxRetries) {
-            $retryCount++
-            Write-Host "   Attempt $retryCount/$MaxRetries - Checking node status..." -ForegroundColor Gray
-            
-            try {
-                $nodes = kubectl get nodes --no-headers 2>$null
-                if ($LASTEXITCODE -eq 0 -and $nodes) {
-                    $nodeLines = $nodes -split "`n" | Where-Object { $_.Trim() -ne "" }
-                    $readyNodes = $nodeLines | Where-Object { $_ -match "\s+Ready\s+" }
-                    
-                    Write-Host "   Found $($nodeLines.Count) nodes, $($readyNodes.Count) ready" -ForegroundColor Gray
-                    
-                    if ($readyNodes.Count -eq $NodeCount) {
-                        $allNodesReady = $true
-                        Write-Success "All $NodeCount nodes are ready!"
-                        break
-                    }
-                } else {
-                    Write-Host "   kubectl not ready yet..." -ForegroundColor Gray
-                }
-            } catch {
-                Write-Host "   Error checking nodes: $($_.Exception.Message)" -ForegroundColor Gray
-            }
-            
-            if (-not $allNodesReady) {
-                Start-Sleep -Seconds $RetryDelay
-            }
-        }
-        
-        if (-not $allNodesReady) {
-            throw "Timeout waiting for all nodes to be ready after $($MaxRetries * $RetryDelay) seconds"
-        }
-        
-        Set-Location "..\.."
     } else {
-        Write-Step 1 "Skipping cluster creation (using existing cluster)"
-        
-        # Ensure kubectl is configured
-        $env:KUBECONFIG = "$(Get-Location)\infra\linode\kubeconfig-$ClusterName-decoded.yaml"
-        
-        # Verify cluster connection
-        kubectl get nodes | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            throw "Cannot connect to existing cluster. Please check kubeconfig."
-        }
-        Write-Success "Connected to existing cluster"
+        Write-Warning "Skipping cluster creation (using existing cluster)"
     }
+
+    # Wait for all nodes to be ready
+    Write-Step "1.5" "Waiting for all cluster nodes to be ready"
+    
+    $maxAttempts = 30
+    $attempt = 0
+    
+    do {
+        $attempt++
+        Write-Host "Checking node status (attempt $attempt/$maxAttempts)..."
+        
+        $notReadyNodes = kubectl get nodes --no-headers | Where-Object { $_ -notmatch '\s+Ready\s+' }
+        
+        if (-not $notReadyNodes) {
+            Write-Success "All nodes are ready!"
+            break
+        }
+        
+        if ($attempt -ge $maxAttempts) {
+            throw "Timed out waiting for nodes to be ready"
+        }
+        
+        Write-Host "Some nodes not ready yet, waiting 30 seconds..."
+        Start-Sleep -Seconds 30
+        
+    } while ($true)
 
     # Step 2: Build and Push Docker Images
-    Write-Step 2 "Building and Pushing Docker Images"
-    
-    if ([string]::IsNullOrEmpty($ApiUrl)) {
-        Write-Host "🔍 Getting LoadBalancer IPs for API URL..." -ForegroundColor Yellow
-        $apiService = kubectl get service randomcorp-api -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
-        if ($LASTEXITCODE -eq 0 -and ![string]::IsNullOrEmpty($apiService)) {
-            $ApiUrl = "http://$apiService"
-            Write-Host "📝 Found existing API LoadBalancer: $ApiUrl" -ForegroundColor Cyan
-        } else {
-            $ApiUrl = "http://api.randomcorp.lke"
-            Write-Warning "No existing API service found, using placeholder: $ApiUrl"
+    if (-not $SkipImageBuild) {
+        Write-Step "2" "Building and Pushing Docker Images"
+        
+        # Get the API service external IP to use as API URL
+        Write-Host "Getting API service external IP..."
+        $maxAttempts = 20
+        $attempt = 0
+        $apiUrl = ""
+        
+        do {
+            $attempt++
+            $apiService = kubectl get service randomcorp-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
+            
+            if ($apiService -and $apiService -ne "") {
+                $apiUrl = "http://$apiService"
+                Write-Success "Found API URL: $apiUrl"
+                break
+            }
+            
+            if ($attempt -ge $maxAttempts) {
+                Write-Warning "Could not get API service IP, using placeholder"
+                $apiUrl = "http://api.placeholder.com"
+                break
+            }
+            
+            Write-Host "API service not ready yet, waiting 15 seconds... (attempt $attempt/$maxAttempts)"
+            Start-Sleep -Seconds 15
+            
+        } while ($true)
+        
+        & .\build-lke-images.ps1 -NoCache -ApiUrl $apiUrl -ForceUpdate
+        
+        if ($LASTEXITCODE -ne 0) {
+            throw "Failed to build and push Docker images"
         }
+        Write-Success "Docker images built and pushed successfully"
+    } else {
+        Write-Warning "Skipping Docker image building"
     }
-    
-    .\build-lke-images.ps1 -NoCache -ApiUrl $ApiUrl
-    if ($LASTEXITCODE -ne 0) {
-        throw "Image build and push failed"
-    }
-    Write-Success "Docker images built and pushed successfully"
 
     # Step 3: Update Helm Dependencies
-    Write-Step 3 "Updating Helm Dependencies"
+    Write-Step "3" "Updating Helm Dependencies"
     
     Set-Location "helm-charts\randomcorp"
     helm dependency update
+    
     if ($LASTEXITCODE -ne 0) {
-        throw "Helm dependency update failed"
+        throw "Failed to update Helm dependencies"
     }
-    Write-Success "Helm dependencies updated"
     
     Set-Location "..\.."
+    Write-Success "Helm dependencies updated successfully"
 
-    # Step 4: Check and Commit Git Changes
-    Write-Step 4 "Checking for Git Changes"
+    # Step 4: Commit and Push Changes
+    Write-Step "4" "Committing and Pushing Git Changes"
     
     $gitStatus = git status --porcelain
     if ($gitStatus) {
-        Write-Host "📝 Found uncommitted changes:" -ForegroundColor Yellow
-        git status --short
-        Write-Host ""
-        Write-Host "🔄 Committing changes..." -ForegroundColor Cyan
+        Write-Host "Found uncommitted changes, committing..."
         git add .
         git commit -m "Automated deployment update - $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
         git push
+        
         if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Git push failed, but continuing with deployment"
-        } else {
-            Write-Success "Changes committed and pushed to repository"
+            throw "Failed to push git changes"
         }
+        Write-Success "Git changes committed and pushed"
     } else {
-        Write-Success "No uncommitted changes found"
+        Write-Success "No git changes to commit"
     }
 
-    # Step 5: Ensure GitHub Token and Install Flux
-    Write-Step 5 "Installing Flux for GitOps"
+    # Step 5: Ensure GitHub Token Exists
+    Write-Step "5" "Checking GitHub Token"
     
-    $tokenFile = "infra\linode\github-token.txt"
-    if (-not (Test-Path $tokenFile)) {
-        throw "GitHub token file not found: $tokenFile. Please create this file with your GitHub Personal Access Token."
+    $tokenPath = "infra\linode\github-token.txt"
+    if (-not (Test-Path $tokenPath)) {
+        Write-Error "GitHub token file not found at: $tokenPath"
+        Write-Host "Please create this file with your GitHub personal access token."
+        throw "GitHub token required for Flux installation"
     }
-    Write-Success "GitHub token file found"
+    Write-Success "GitHub token found"
+
+    # Step 6: Install Flux
+    Write-Step "6" "Installing Flux"
     
-    Set-Location "infra\linode"
-    .\install-flux.ps1
+    & .\infra\linode\install-flux.ps1
+    
     if ($LASTEXITCODE -ne 0) {
-        throw "Flux installation failed"
+        throw "Failed to install Flux"
     }
     Write-Success "Flux installed successfully"
-    Set-Location "..\.."
 
-    # Step 6: Verify Flux Components
-    Write-Step 6 "Verifying Flux Components"
+    # Step 7: Wait for Flux Components
+    Write-Step "7" "Waiting for Flux Components to be Ready"
     
-    Write-Host "🔍 Checking Flux system pods..." -ForegroundColor Yellow
-    kubectl get pods -n flux-system
+    $maxAttempts = 20
+    $attempt = 0
     
-    Write-Host ""
-    Write-Host "🔍 Checking Git repositories..." -ForegroundColor Yellow  
-    kubectl get gitrepository -n flux-system
-    
-    Write-Host ""
-    Write-Host "🔍 Checking Helm releases..." -ForegroundColor Yellow
-    kubectl get helmrelease -n default
-    
-    Write-Success "Flux components verified"
-
-    # Step 7: Wait for Application Pods
-    Write-Step 7 "Waiting for Application Pods"
-    
-    Write-Host "🔄 Waiting for application pods to be ready..." -ForegroundColor Yellow
-    $retryCount = 0
-    $podsReady = $false
-    
-    while (-not $podsReady -and $retryCount -lt $MaxRetries) {
-        $retryCount++
-        Write-Host "   Attempt $retryCount/$MaxRetries - Checking pod status..." -ForegroundColor Gray
+    do {
+        $attempt++
+        Write-Host "Checking Flux components (attempt $attempt/$maxAttempts)..."
         
-        $pods = kubectl get pods -n default --no-headers 2>$null
-        if ($LASTEXITCODE -eq 0 -and $pods) {
-            $podLines = $pods -split "`n" | Where-Object { $_.Trim() -ne "" }
-            $runningPods = $podLines | Where-Object { $_ -match "\s+Running\s+" }
+        $fluxPods = kubectl get pods -n flux-system --no-headers
+        $notReadyPods = $fluxPods | Where-Object { $_ -notmatch '\s+Running\s+' -and $_ -notmatch '\s+Completed\s+' }
+        
+        if (-not $notReadyPods) {
+            Write-Success "All Flux components are ready!"
+            break
+        }
+        
+        if ($attempt -ge $maxAttempts) {
+            Write-Warning "Some Flux components may not be ready, continuing anyway..."
+            break
+        }
+        
+        Write-Host "Some Flux components not ready yet, waiting 15 seconds..."
+        Start-Sleep -Seconds 15
+        
+    } while ($true)
+
+    # Step 8: Wait for GitRepository
+    Write-Step "8" "Waiting for GitRepository to be Ready"
+    
+    $maxAttempts = 15
+    $attempt = 0
+    
+    do {
+        $attempt++
+        Write-Host "Checking GitRepository status (attempt $attempt/$maxAttempts)..."
+        
+        $gitRepoStatus = kubectl get gitrepository randomcorp-source -n flux-system -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>$null
+        
+        if ($gitRepoStatus -eq "True") {
+            Write-Success "GitRepository is ready!"
+            break
+        }
+        
+        if ($attempt -ge $maxAttempts) {
+            Write-Warning "GitRepository may not be ready, continuing anyway..."
+            break
+        }
+        
+        Write-Host "GitRepository not ready yet, waiting 20 seconds..."
+        Start-Sleep -Seconds 20
+        
+    } while ($true)
+
+    # Step 9: Wait for HelmRelease
+    Write-Step "9" "Waiting for HelmRelease to be Ready"
+    
+    $maxAttempts = 15
+    $attempt = 0
+    
+    do {
+        $attempt++
+        Write-Host "Checking HelmRelease status (attempt $attempt/$maxAttempts)..."
+        
+        $helmReleaseStatus = kubectl get helmrelease randomcorp -n default -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>$null
+        
+        if ($helmReleaseStatus -eq "True") {
+            Write-Success "HelmRelease is ready!"
+            break
+        }
+        
+        if ($attempt -ge $maxAttempts) {
+            Write-Warning "HelmRelease may not be ready, continuing anyway..."
+            break
+        }
+        
+        Write-Host "HelmRelease not ready yet, waiting 20 seconds..."
+        Start-Sleep -Seconds 20
+        
+    } while ($true)
+
+    # Step 10: Wait for Application Pods
+    Write-Step "10" "Waiting for Application Pods to be Ready"
+    
+    $maxAttempts = 20
+    $attempt = 0
+    
+    do {
+        $attempt++
+        Write-Host "Checking application pods (attempt $attempt/$maxAttempts)..."
+        
+        $appPods = kubectl get pods -l app.kubernetes.io/name=randomcorp --no-headers 2>$null
+        $notReadyPods = $appPods | Where-Object { $_ -notmatch '\s+Running\s+' -and $_ -notmatch '\s+Completed\s+' }
+        
+        if (-not $notReadyPods -and $appPods) {
+            Write-Success "All application pods are ready!"
+            break
+        }
+        
+        if ($attempt -ge $maxAttempts) {
+            Write-Warning "Some application pods may not be ready, continuing anyway..."
+            break
+        }
+        
+        Write-Host "Some application pods not ready yet, waiting 15 seconds..."
+        Start-Sleep -Seconds 15
+        
+    } while ($true)
+
+    # Step 11: Get the actual API URL and rebuild frontend if needed
+    Write-Step "11" "Verifying API URL and Rebuilding Frontend if Needed"
+    
+    $apiService = kubectl get service randomcorp-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
+    
+    if ($apiService -and $apiService -ne "") {
+        $actualApiUrl = "http://$apiService"
+        Write-Success "Actual API URL: $actualApiUrl"
+        
+        # Check if we need to rebuild the frontend with the correct API URL
+        if ($apiUrl -ne $actualApiUrl) {
+            Write-Step "11.1" "Rebuilding Frontend with Correct API URL"
             
-            Write-Host "   Found $($podLines.Count) pods, $($runningPods.Count) running" -ForegroundColor Gray
+            & .\build-lke-images.ps1 -NoCache -ApiUrl $actualApiUrl -ForceUpdate
             
-            # Check if we have at least frontend, API, and database pods
-            $frontendPods = $podLines | Where-Object { $_ -match "randomcorp-frontend.*Running" }
-            $apiPods = $podLines | Where-Object { $_ -match "randomcorp-api.*Running" }
-            $dbPods = $podLines | Where-Object { $_ -match "randomcorp-mssqlserver.*Running" }
-            
-            if ($frontendPods.Count -ge 1 -and $apiPods.Count -ge 1 -and $dbPods.Count -ge 1) {
-                $podsReady = $true
-                Write-Success "All application pods are running!"
-                break
+            if ($LASTEXITCODE -ne 0) {
+                throw "Failed to rebuild frontend with correct API URL"
             }
+            
+            Write-Success "Frontend rebuilt with correct API URL"
+            
+            # Force restart of frontend deployment
+            Write-Step "11.2" "Restarting Frontend Deployment"
+            kubectl rollout restart deployment randomcorp-frontend
+            
+            # Wait for rollout to complete
+            kubectl rollout status deployment randomcorp-frontend --timeout=300s
+            
+            Write-Success "Frontend deployment restarted"
         }
-        
-        if (-not $podsReady) {
-            Start-Sleep -Seconds $RetryDelay
-        }
-    }
-    
-    if (-not $podsReady) {
-        Write-Warning "Timeout waiting for all pods to be ready, but continuing..."
-    }
-
-    # Step 8: Get LoadBalancer IPs
-    Write-Step 8 "Getting LoadBalancer IPs"
-    
-    Write-Host "🌐 LoadBalancer Services:" -ForegroundColor Yellow
-    kubectl get services -n default
-    
-    # Extract LoadBalancer IPs
-    $frontendIP = kubectl get service randomcorp-frontend -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
-    $apiIP = kubectl get service randomcorp-api -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
-    
-    if (![string]::IsNullOrEmpty($frontendIP)) {
-        Write-Success "Frontend LoadBalancer IP: $frontendIP"
-        $frontendUrl = "http://$frontendIP"
     } else {
-        Write-Warning "Frontend LoadBalancer IP not yet assigned"
-        $frontendUrl = "Pending..."
-    }
-    
-    if (![string]::IsNullOrEmpty($apiIP)) {
-        Write-Success "API LoadBalancer IP: $apiIP"
-        $actualApiUrl = "http://$apiIP"
-    } else {
-        Write-Warning "API LoadBalancer IP not yet assigned"
-        $actualApiUrl = "Pending..."
+        Write-Warning "Could not get API service external IP"
     }
 
-    # Step 9: Rebuild Frontend with Correct API URL (if needed)
-    if (![string]::IsNullOrEmpty($apiIP) -and $ApiUrl -ne $actualApiUrl) {
-        Write-Step 9 "Rebuilding Frontend with Correct API URL"
-        
-        Write-Host "🔄 Current API URL in build: $ApiUrl" -ForegroundColor Yellow
-        Write-Host "🎯 Actual API LoadBalancer: $actualApiUrl" -ForegroundColor Cyan
-        Write-Host "🔨 Rebuilding frontend with correct API URL..." -ForegroundColor Cyan
-        
-        docker build --no-cache --build-arg REACT_APP_API_URL="$actualApiUrl" -t docker.io/johnhebeler/randomcorp-frontend:latest .
-        if ($LASTEXITCODE -ne 0) {
-            throw "Frontend rebuild failed"
-        }
-        
-        docker push docker.io/johnhebeler/randomcorp-frontend:latest
-        if ($LASTEXITCODE -ne 0) {
-            throw "Frontend push failed"
-        }
-        
-        Write-Host "🔄 Restarting frontend deployment..." -ForegroundColor Cyan
-        kubectl rollout restart deployment randomcorp-frontend -n default
-        kubectl rollout status deployment randomcorp-frontend -n default --timeout=300s
-        
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Rollout status check failed, trying pod deletion..."
-            kubectl delete pods -l app.kubernetes.io/component=frontend -n default
-            Start-Sleep -Seconds 30
-        }
-        
-        Write-Success "Frontend updated with correct API URL"
-    } else {
-        Write-Step 9 "Skipping Frontend Rebuild (API URL already correct or pending)"
+    # Step 12: Final Verification
+    Write-Step "12" "Final Verification"
+    
+    Write-Host ""
+    Write-Host "=== Cluster Status ===" -ForegroundColor Yellow
+    kubectl get nodes
+    
+    Write-Host ""
+    Write-Host "=== Application Pods ===" -ForegroundColor Yellow
+    kubectl get pods -l app.kubernetes.io/name=randomcorp
+    
+    Write-Host ""
+    Write-Host "=== Services ===" -ForegroundColor Yellow
+    kubectl get services
+    
+    Write-Host ""
+    Write-Host "=== Flux Status ===" -ForegroundColor Yellow
+    kubectl get gitrepository,helmrelease -A
+    
+    # Final Summary
+    Write-Host ""
+    Write-Host "DEPLOYMENT COMPLETED SUCCESSFULLY!" -ForegroundColor Green
+    Write-Host "==================================" -ForegroundColor Green
+    Write-Host ""
+    
+    $frontendService = kubectl get service randomcorp-frontend-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
+    $apiService = kubectl get service randomcorp-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
+    
+    if ($frontendService) {
+        Write-Host "Frontend URL: http://$frontendService" -ForegroundColor Cyan
     }
-
-    # Step 10: Final Verification
-    Write-Step 10 "Final Verification"
     
-    Write-Host "🔍 Final pod status:" -ForegroundColor Yellow
-    kubectl get pods -n default
-    
-    Write-Host ""
-    Write-Host "🌐 Final service status:" -ForegroundColor Yellow
-    kubectl get services -n default
-
-    # Calculate deployment time
-    $endTime = Get-Date
-    $deploymentTime = $endTime - $startTime
-    
-    Write-Host ""
-    Write-Host "🎉 DEPLOYMENT COMPLETE! 🎉" -ForegroundColor Green
-    Write-Host "=========================" -ForegroundColor Green
-    Write-Host "⏱️ Total deployment time: $($deploymentTime.ToString('hh\:mm\:ss'))" -ForegroundColor Cyan
-    Write-Host ""
-    
-    if (![string]::IsNullOrEmpty($frontendIP)) {
-        Write-Host "🌐 Frontend URL: $frontendUrl" -ForegroundColor Green
-    }
-    if (![string]::IsNullOrEmpty($apiIP)) {
-        Write-Host "🔌 API URL: $actualApiUrl" -ForegroundColor Green
+    if ($apiService) {
+        Write-Host "API URL: http://$apiService" -ForegroundColor Cyan
     }
     
     Write-Host ""
-    Write-Host "📋 Next Steps:" -ForegroundColor Yellow
-    Write-Host "1. Test the frontend application in your browser" -ForegroundColor White
-    Write-Host "2. Verify form submissions are working" -ForegroundColor White
-    Write-Host "3. Monitor with: kubectl get pods -n default" -ForegroundColor White
+    Write-Host "RandomCorp application is now deployed and running on LKE!" -ForegroundColor Green
     Write-Host ""
-    Write-Host "🔧 Useful Commands:" -ForegroundColor Yellow
-    Write-Host "   kubectl get services -n default" -ForegroundColor Gray
-    Write-Host "   kubectl logs -f deployment/randomcorp-frontend -n default" -ForegroundColor Gray
-    Write-Host "   kubectl logs -f deployment/randomcorp-api -n default" -ForegroundColor Gray
 
 } catch {
     Write-Error "Deployment failed: $($_.Exception.Message)"
     Write-Host ""
-    Write-Host "🔧 Troubleshooting:" -ForegroundColor Yellow
-    Write-Host "1. Check cluster status: kubectl get nodes" -ForegroundColor White
-    Write-Host "2. Check pods: kubectl get pods -n default" -ForegroundColor White
-    Write-Host "3. Check services: kubectl get services -n default" -ForegroundColor White
-    Write-Host "4. Check Flux: kubectl get pods -n flux-system" -ForegroundColor White
+    Write-Host "You can try running the script again or use these options:" -ForegroundColor Yellow
+    Write-Host "   -SkipClusterCreation    # Skip cluster creation if cluster exists" -ForegroundColor White
+    Write-Host "   -SkipImageBuild         # Skip image building if images are up to date" -ForegroundColor White
+    Write-Host "   -Force                  # Force recreate cluster" -ForegroundColor White
+    Write-Host ""
     exit 1
 }
