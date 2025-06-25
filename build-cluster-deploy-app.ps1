@@ -280,7 +280,7 @@ try {
     # Step 10: Get the actual API URL and rebuild frontend if needed
     Write-Step "10" "Verifying API URL and Rebuilding Frontend if Needed"
     
-    $apiService = kubectl get service randomcorp-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
+    $apiService = kubectl get service randomcorp-api -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
     
     if ($apiService -and $apiService -ne "") {
         $actualApiUrl = "http://$apiService"
@@ -336,8 +336,8 @@ try {
     Write-Host "==================================" -ForegroundColor Green
     Write-Host ""
     
-    $frontendService = kubectl get service randomcorp-frontend-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
-    $apiService = kubectl get service randomcorp-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
+    $frontendService = kubectl get service randomcorp-frontend -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
+    $apiService = kubectl get service randomcorp-api -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
     
     if ($frontendService) {
         Write-Host "Frontend URL: http://$frontendService" -ForegroundColor Cyan
