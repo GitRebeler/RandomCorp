@@ -77,8 +77,27 @@ try {
             throw "Failed to create LKE cluster"
         }
         Write-Success "LKE cluster created successfully"
+        
+        # Set kubeconfig for the newly created cluster
+        $env:KUBECONFIG = "$(Get-Location)\infra\linode\kubeconfig-randomcorp-lke-decoded.yaml"
+        Write-Host "Setting KUBECONFIG to: $env:KUBECONFIG" -ForegroundColor Yellow
     } else {
         Write-Warning "Skipping cluster creation (using existing cluster)"
+        
+        # Ensure we're using the correct kubeconfig for LKE
+        $env:KUBECONFIG = "$(Get-Location)\infra\linode\kubeconfig-randomcorp-lke-decoded.yaml"
+        Write-Host "Setting KUBECONFIG to: $env:KUBECONFIG" -ForegroundColor Yellow
+        
+        # Verify we can connect to the cluster
+        try {
+            kubectl get nodes --no-headers | Out-Null
+            if ($LASTEXITCODE -ne 0) {
+                throw "Cannot connect to LKE cluster"
+            }
+            Write-Success "Connected to existing LKE cluster"
+        } catch {
+            throw "Failed to connect to existing cluster. Please ensure the LKE cluster is running and kubeconfig is correct."
+        }
     }
 
     # Wait for all nodes to be ready
@@ -111,32 +130,10 @@ try {
     if (-not $SkipImageBuild) {
         Write-Step "2" "Building and Pushing Docker Images"
         
-        # Get the API service external IP to use as API URL
-        Write-Host "Getting API service external IP..."
-        $maxAttempts = 20
-        $attempt = 0
-        $apiUrl = ""
-        
-        do {
-            $attempt++
-            $apiService = kubectl get service randomcorp-api-service -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>$null
-            
-            if ($apiService -and $apiService -ne "") {
-                $apiUrl = "http://$apiService"
-                Write-Success "Found API URL: $apiUrl"
-                break
-            }
-            
-            if ($attempt -ge $maxAttempts) {
-                Write-Warning "Could not get API service IP, using placeholder"
-                $apiUrl = "http://api.placeholder.com"
-                break
-            }
-            
-            Write-Host "API service not ready yet, waiting 15 seconds... (attempt $attempt/$maxAttempts)"
-            Start-Sleep -Seconds 15
-            
-        } while ($true)
+        # For initial deployment, use placeholder URL - we'll rebuild with correct URL later
+        Write-Host "Using placeholder API URL for initial image build..."
+        $apiUrl = "http://api.placeholder.com"
+        Write-Host "API URL for initial build: $apiUrl" -ForegroundColor Yellow
         
         & .\build-lke-images.ps1 -NoCache -ApiUrl $apiUrl -ForceUpdate
         
@@ -146,6 +143,7 @@ try {
         Write-Success "Docker images built and pushed successfully"
     } else {
         Write-Warning "Skipping Docker image building"
+        $apiUrl = "http://api.placeholder.com"  # Set placeholder for later comparison
     }
 
     # Step 3: Update Helm Dependencies
