@@ -16,6 +16,7 @@ frontend:
   image:
     repository: docker.io/johnhebeler/randomcorp-frontend
     tag: "latest"
+    pullPolicy: Always
   service:
     type: LoadBalancer
     port: 80
