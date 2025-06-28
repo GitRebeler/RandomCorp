@@ -1,19 +1,19 @@
-# Build and push Docker images for LKE deployment
+# Build and push Docker images for LKE deployment with Ingress
 #
 # Usage Examples:
 #   .\build-lke-images.ps1
 #   .\build-lke-images.ps1 -NoCache
-#   .\build-lke-images.ps1 -ApiUrl "http://139.144.241.105"
-#   .\build-lke-images.ps1 -ForceUpdate -ApiUrl "http://139.144.241.105"
-#   .\build-lke-images.ps1 -NoCache -ForceUpdate -ApiUrl "http://139.144.241.105"
+#   .\build-lke-images.ps1 -ApiUrl "/api"
+#   .\build-lke-images.ps1 -ForceUpdate -ApiUrl "/api"
+#   .\build-lke-images.ps1 -NoCache -ForceUpdate -ApiUrl "/api"
 #
 param(
     [switch]$NoCache,
-    [string]$ApiUrl = "",
+    [string]$ApiUrl = "/api",
     [switch]$ForceUpdate
 )
 
-Write-Host "🏗️ Building RandomCorp images for LKE deployment..." -ForegroundColor Green
+Write-Host "🏗️ Building RandomCorp images for LKE deployment with Ingress..." -ForegroundColor Green
 
 # Set variables
 $DOCKER_REGISTRY = "docker.io/johnhebeler"
@@ -27,17 +27,10 @@ if ($NoCache) {
     Write-Host "🚫 Using --no-cache flag for complete rebuild" -ForegroundColor Yellow
 }
 
-# Get LoadBalancer IP or use provided URL
-if ([string]::IsNullOrEmpty($ApiUrl)) {
-    $API_URL = Read-Host "Enter the API LoadBalancer URL (or press Enter for default: http://api.randomcorp.lke)"
-    if ([string]::IsNullOrEmpty($API_URL)) {
-        $API_URL = "http://api.randomcorp.lke"
-    }
-} else {
-    $API_URL = $ApiUrl
-}
+# Use ingress-based API URL (no need to prompt for LoadBalancer IP)
+$API_URL = $ApiUrl
 
-Write-Host "📝 Using API URL: $API_URL" -ForegroundColor Yellow
+Write-Host "📝 Using API URL: $API_URL (Ingress-based routing)" -ForegroundColor Yellow
 
 # Build API image
 Write-Host "🔨 Building API image..." -ForegroundColor Cyan

@@ -24,6 +24,17 @@ docker-compose --env-file .env.dev up --build
 ```
 
 ### Production (LKE/Kubernetes)
+
+**Option 1: Ingress-based deployment (Recommended)**
+```bash
+# Complete deployment with ingress controller
+.\build-cluster-deploy-app-ingress.ps1
+
+# With custom domain and HTTPS
+.\build-cluster-deploy-app-ingress.ps1 -Domain "randomcorp.com" -UseHTTPS -Email "admin@example.com"
+```
+
+**Option 2: Traditional LoadBalancer deployment**
 ```bash
 # Using the convenience script
 .\start-prod.ps1
@@ -47,6 +58,20 @@ The application supports multiple deployment environments:
   - Environment variables for external database connection
   - No development volumes mounted
   - Production-ready configuration
+
+**Kubernetes/LKE Deployment Options:**
+
+- **Ingress-based** (Recommended):
+  - Single deployment step with NGINX Ingress Controller
+  - Predictable URLs using domain names
+  - Automatic HTTPS with Let's Encrypt (optional)
+  - No need to rebuild frontend after LoadBalancer IP assignment
+  - Same-origin API calls eliminate CORS issues
+
+- **LoadBalancer-based** (Legacy):
+  - Two-step deployment process
+  - Direct LoadBalancer IP exposure
+  - Manual frontend rebuild after IP assignment
 
 ## Project Structure
 
@@ -195,7 +220,10 @@ docker-compose build api
 ## Environment Variables
 
 ### Frontend
-- `REACT_APP_API_URL` - API base URL (default: http://localhost:8000)
+- `REACT_APP_API_URL` - API base URL 
+  - Development: `http://localhost:8000`
+  - Ingress-based production: `/api` (relative path)
+  - LoadBalancer-based production: `http://your-api-ip`
 
 ### API
 - `PYTHONUNBUFFERED` - Disable Python output buffering
