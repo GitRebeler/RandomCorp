@@ -65,15 +65,32 @@ Write-Host "🚀 RandomCorp Ingress-Based Deployment to LKE" -ForegroundColor Gr
 Write-Host "===============================================" -ForegroundColor Green
 Write-Host ""
 
-# Step 1: Create or verify LKE cluster
+# Step 1: Create or verify LKE cluster with Terraform
 if (-not $SkipClusterCreation) {
-    Write-Step "1" "Creating/Verifying LKE Cluster"
-    & ".\infra\linode\create-lke-cluster.ps1" -Force:$Force
-    if ($LASTEXITCODE -ne 0) {
-        Write-Error "Cluster creation failed"
-        exit 1
+    Write-Step "1" "Creating/Verifying LKE Cluster with Terraform"
+    $originalLocation = Get-Location
+    Set-Location ".\infra\terraform"
+    
+    try {
+        if ($Force) {
+            & ".\deploy-infrastructure.ps1" -Force
+        } else {
+            & ".\deploy-infrastructure.ps1"
+        }
+        
+        if ($LASTEXITCODE -ne 0) {
+            Write-Error "Terraform infrastructure deployment failed"
+            exit 1
+        }
+        
+        # Set kubeconfig from Terraform output
+        $kubeconfigPath = terraform output -raw kubeconfig_path
+        $env:KUBECONFIG = $kubeconfigPath
+        Write-Success "Cluster ready with Terraform"
     }
-    Write-Success "Cluster ready"
+    finally {
+        Set-Location $originalLocation
+    }
 } else {
     Write-Step "1" "Skipping cluster creation (using existing cluster)"
     
