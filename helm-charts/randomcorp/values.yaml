@@ -5,7 +5,7 @@ replicaCount: 2
 image:
   repository: docker.io/johnhebeler/randomcorp
   tag: "latest"
-  pullPolicy: IfNotPresent
+  pullPolicy: Always
 
 service:
   type: LoadBalancer
