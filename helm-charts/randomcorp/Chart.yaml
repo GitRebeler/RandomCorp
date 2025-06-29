@@ -1,4 +1,4 @@
-﻿apiVersion: v2
+apiVersion: v2
 name: randomcorp
 description: Random Corp FastAPI application with SQL Server
 type: application
