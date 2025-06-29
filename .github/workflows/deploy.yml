@@ -145,8 +145,12 @@ jobs:
     - name: Plan Terraform changes
       run: |
         cd infra/terraform
+        
+        # Disable exit on error to handle terraform plan exit codes properly
+        set +e
         terraform plan -out=tfplan -detailed-exitcode
         PLAN_EXIT_CODE=$?
+        set -e
         
         if [ $PLAN_EXIT_CODE -eq 0 ]; then
           echo "No changes needed"
