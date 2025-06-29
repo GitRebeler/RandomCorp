@@ -14,7 +14,7 @@ You need to configure the following secrets in your GitHub repository:
 - `LINODE_TOKEN` - Your Linode API token with full access
 
 ### 3. GitHub Token (Automatic)
-- `GITHUB_TOKEN` - Automatically provided by GitHub Actions
+- `GH_TOKEN` - Automatically provided by GitHub Actions
 
 ## Setting Up GitHub Secrets
 
