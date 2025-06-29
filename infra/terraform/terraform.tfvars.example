@@ -7,7 +7,7 @@
 
 # Cluster Configuration
 cluster_name = "randomcorp-lke"
-region       = "us-east"
+region       = "us-central"
 k8s_version  = "1.33"
 
 # Node Configuration

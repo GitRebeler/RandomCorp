@@ -81,31 +81,36 @@ ingress:
     - host: randomcorp.local
       paths:
         - path: /api(/|$)(.*)
-          pathType: Prefix
+          pathType: ImplementationSpecific
           backend:
             service:
               name: randomcorp-api
-              port: 80
-        - path: /()(.*)
-          pathType: Prefix
+              port:
+                number: 80
+        - path: /(.*)
+          pathType: ImplementationSpecific
           backend:
             service:
               name: randomcorp-frontend
-              port: 80
+              port:
+                number: 80
     # Default catch-all host for direct IP access
     - host: ""
       paths:
         - path: /api(/|$)(.*)
-          pathType: Prefix
+          pathType: ImplementationSpecific
           backend:
             service:
               name: randomcorp-api
-              port: 80
-        - path: /()(.*)
-          pathType: Prefix
+              port:
+                number: 80
+        - path: /(.*)
+          pathType: ImplementationSpecific
           backend:
             service:
               name: randomcorp-frontend
-              port: 80
+              port:
+                number: 80
   tls: []
+
 
