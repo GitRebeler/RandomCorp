@@ -1,0 +1,364 @@
+name: Deploy RandomCorp to LKE
+
+on:
+  push:
+    branches: [ main, master ]
+  pull_request:
+    branches: [ main, master ]
+  workflow_dispatch:
+    inputs:
+      force_rebuild:
+        description: 'Force rebuild all images'
+        required: false
+        default: 'false'
+        type: boolean
+
+env:
+  REGISTRY: docker.io
+  API_IMAGE_NAME: johnhebeler/randomcorp
+  FRONTEND_IMAGE_NAME: johnhebeler/randomcorp-frontend
+  CLUSTER_NAME: randomcorp-lke
+  DOMAIN: randomcorp.local
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Log in to Docker Hub
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ secrets.DOCKER_USERNAME }}
+        password: ${{ secrets.DOCKER_PASSWORD }}
+
+    - name: Extract metadata for API
+      id: meta-api
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Extract metadata for Frontend
+      id: meta-frontend
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push API image
+      uses: docker/build-push-action@v5
+      with:
+        context: ./api
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta-api.outputs.tags }}
+        labels: ${{ steps.meta-api.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Build and push Frontend image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        platforms: linux/amd64,linux/arm64
+        push: true
+        tags: ${{ steps.meta-frontend.outputs.tags }}
+        labels: ${{ steps.meta-frontend.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max
+
+    - name: Install Linode CLI
+      run: |
+        curl -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+          https://api.linode.com/v4/account
+
+    - name: Set up kubectl
+      uses: azure/setup-kubectl@v3
+      with:
+        version: 'latest'
+
+    - name: Install Flux CLI
+      run: |
+        curl -s https://fluxcd.io/install.sh | sudo bash
+
+    - name: Check for existing cluster
+      id: check-cluster
+      run: |
+        if curl -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+           "https://api.linode.com/v4/lke/clusters" | \
+           jq -e '.data[] | select(.label == "${{ env.CLUSTER_NAME }}")' > /dev/null; then
+          echo "cluster_exists=true" >> $GITHUB_OUTPUT
+          echo "✅ Cluster ${{ env.CLUSTER_NAME }} exists"
+        else
+          echo "cluster_exists=false" >> $GITHUB_OUTPUT
+          echo "❌ Cluster ${{ env.CLUSTER_NAME }} does not exist"
+        fi
+
+    - name: Create LKE cluster if not exists
+      if: steps.check-cluster.outputs.cluster_exists == 'false'
+      run: |
+        echo "🚀 Creating new LKE cluster: ${{ env.CLUSTER_NAME }}"
+        
+        # Create cluster
+        CLUSTER_RESPONSE=$(curl -X POST \
+          -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+          -H "Content-Type: application/json" \
+          -d '{
+            "label": "${{ env.CLSTER_NAME }}",
+            "region": "us-central",
+            "k8s_version": "1.33",
+            "tags": ["randomcorp", "production"],
+            "node_pools": [
+              {
+                "type": "g6-standard-2",
+                "count": 3,
+                "autoscaler": {
+                  "enabled": true,
+                  "min": 3,
+                  "max": 10
+                }
+              }
+            ]
+          }' \
+          "https://api.linode.com/v4/lke/clusters")
+        
+        CLUSTER_ID=$(echo $CLUSTER_RESPONSE | jq -r '.id')
+        echo "CLUSTER_ID=$CLUSTER_ID" >> $GITHUB_ENV
+        echo "📋 Cluster ID: $CLUSTER_ID"
+        
+        # Wait for cluster to be ready
+        echo "⏳ Waiting for cluster to be ready..."
+        while true; do
+          STATUS=$(curl -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+            "https://api.linode.com/v4/lke/clusters/$CLUSTER_ID" | \
+            jq -r '.status')
+          
+          if [ "$STATUS" = "ready" ]; then
+            echo "✅ Cluster is ready!"
+            break
+          fi
+          
+          echo "🔄 Cluster status: $STATUS, waiting..."
+          sleep 30
+        done
+
+    - name: Get cluster ID for existing cluster
+      if: steps.check-cluster.outputs.cluster_exists == 'true'
+      run: |
+        CLUSTER_ID=$(curl -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+          "https://api.linode.com/v4/lke/clusters" | \
+          jq -r '.data[] | select(.label == "${{ env.CLUSTER_NAME }}") | .id')
+        echo "CLUSTER_ID=$CLUSTER_ID" >> $GITHUB_ENV
+        echo "📋 Using existing cluster ID: $CLUSTER_ID"
+
+    - name: Get kubeconfig
+      run: |
+        echo "📥 Downloading kubeconfig..."
+        KUBECONFIG_RESPONSE=$(curl -X GET \
+          -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+          "https://api.linode.com/v4/lke/clusters/$CLUSTER_ID/kubeconfig")
+        
+        echo "$KUBECONFIG_RESPONSE" | jq -r '.kubeconfig' | base64 -d > kubeconfig.yaml
+        export KUBECONFIG=kubeconfig.yaml
+        echo "KUBECONFIG=$(pwd)/kubeconfig.yaml" >> $GITHUB_ENV
+        
+        # Test connection
+        kubectl cluster-info
+        kubectl get nodes
+
+    - name: Install NGINX Ingress Controller
+      run: |
+        echo "🔧 Installing NGINX Ingress Controller..."
+        kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/cloud/deploy.yaml
+        
+        # Wait for ingress controller to be ready
+        kubectl wait --namespace ingress-nginx \
+          --for=condition=ready pod \
+          --selector=app.kubernetes.io/component=controller \
+          --timeout=300s
+
+    - name: Check if Flux is installed
+      id: check-flux
+      run: |
+        if kubectl get namespace flux-system > /dev/null 2>&1; then
+          echo "flux_installed=true" >> $GITHUB_OUTPUT
+          echo "✅ Flux is already installed"
+        else
+          echo "flux_installed=false" >> $GITHUB_OUTPUT
+          echo "❌ Flux is not installed"
+        fi
+
+    - name: Bootstrap Flux CD
+      if: steps.check-flux.outputs.flux_installed == 'false'
+      run: |
+        echo "🔧 Bootstrapping Flux CD..."
+        flux bootstrap github \
+          --owner=GitRebeler \
+          --repository=RandomCorp \
+          --branch=master \
+          --path=clusters/linode-lke \
+          --personal \
+          --token-auth
+
+    - name: Update Helm values with current image tags
+      run: |
+        echo "🔄 Updating Helm values with new image tags..."
+        
+        # Get the latest image tags that were just built
+        API_TAG=$(echo '${{ steps.meta-api.outputs.tags }}' | head -n1 | cut -d':' -f2)
+        FRONTEND_TAG=$(echo '${{ steps.meta-frontend.outputs.tags }}' | head -n1 | cut -d':' -f2)
+        
+        echo "API Tag: $API_TAG"
+        echo "Frontend Tag: $FRONTEND_TAG"
+        
+        # Update values.yaml
+        sed -i "s|tag: \".*\"|tag: \"$API_TAG\"|g" helm-charts/randomcorp/values.yaml
+        sed -i "/frontend:/,/service:/ s|tag: \".*\"|tag: \"$FRONTEND_TAG\"|" helm-charts/randomcorp/values.yaml
+
+    - name: Commit and push updated values
+      run: |
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        
+        if git diff --quiet; then
+          echo "No changes to commit"
+        else
+          git add helm-charts/randomcorp/values.yaml
+          git commit -m "Update image tags to ${{ github.sha }}"
+          git push
+        fi
+
+    - name: Wait for Flux to deploy changes
+      run: |
+        echo "⏳ Waiting for Flux to reconcile and deploy changes..."
+        sleep 60
+        
+        # Check if HelmRelease exists and is ready
+        kubectl wait --for=condition=Ready helmrelease/randomcorp \
+          --namespace=default \
+          --timeout=600s || true
+
+    - name: Get ingress IP
+      id: get-ip
+      run: |
+        echo "📡 Getting ingress LoadBalancer IP..."
+        
+        # Wait for LoadBalancer to get an external IP
+        for i in {1..30}; do
+          INGRESS_IP=$(kubectl get service ingress-nginx-controller \
+            -n ingress-nginx \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+          
+          if [ -n "$INGRESS_IP" ] && [ "$INGRESS_IP" != "null" ]; then
+            echo "✅ Ingress IP: $INGRESS_IP"
+            echo "ingress_ip=$INGRESS_IP" >> $GITHUB_OUTPUT
+            break
+          fi
+          
+          echo "⏳ Waiting for LoadBalancer IP... (attempt $i/30)"
+          sleep 10
+        done
+        
+        if [ -z "$INGRESS_IP" ] || [ "$INGRESS_IP" = "null" ]; then
+          echo "❌ Failed to get ingress IP"
+          exit 1
+        fi
+
+    - name: Verify deployment
+      run: |
+        echo "🔍 Verifying deployment..."
+        
+        # Check pods
+        kubectl get pods -l app.kubernetes.io/name=randomcorp
+        kubectl get pods -l app.kubernetes.io/component=frontend
+        
+        # Check services
+        kubectl get services
+        
+        # Check ingress
+        kubectl get ingress
+        
+        # Test API health endpoint
+        INGRESS_IP="${{ steps.get-ip.outputs.ingress_ip }}"
+        echo "🏥 Testing API health endpoint..."
+        
+        for i in {1..10}; do
+          if curl -f "http://$INGRESS_IP/api/health" > /dev/null 2>&1; then
+            echo "✅ API health check passed"
+            break
+          fi
+          echo "⏳ Waiting for API to be ready... (attempt $i/10)"
+          sleep 30
+        done
+
+    - name: Display deployment info
+      run: |
+        INGRESS_IP="${{ steps.get-ip.outputs.ingress_ip }}"
+        
+        echo "🎉 Deployment Complete!"
+        echo "========================"
+        echo "📋 Access Information:"
+        echo "  Ingress IP: $INGRESS_IP"
+        echo "  Domain: ${{ env.DOMAIN }}"
+        echo ""
+        echo "🌐 Application URLs:"
+        echo "  Frontend: http://${{ env.DOMAIN }}/"
+        echo " -or- "
+        echo "  Frontend: http://${{ INGRESS_IP }}/"
+        echo "  API: http://${{ env.DOMAIN }}/api/"
+        echo "  API Docs: http://${{ env.DOMAIN }}/api/docs"
+        echo ""
+        echo "📝 Add this to your hosts file:"
+        echo "   $INGRESS_IP ${{ env.DOMAIN }}"
+        echo ""
+        echo "✅ RandomCorp is now running!"
+
+    - name: Create deployment summary
+      run: |
+        INGRESS_IP="${{ steps.get-ip.outputs.ingress_ip }}"
+        
+        cat >> $GITHUB_STEP_SUMMARY << EOF
+        # 🎉 RandomCorp Deployment Successful!
+        
+        ## 🌐 Access Information
+        - **Ingress IP**: \`$INGRESS_IP\`
+        - **Domain**: \`${{ env.DOMAIN }}\`
+        
+        ## 🔗 Application URLs
+        - [Frontend](http://${{ env.DOMAIN }}/)
+        - [API](http://${{ env.DOMAIN }}/api/)
+        - [API Documentation](http://${{ env.DOMAIN }}/api/docs)
+        
+        ## 📝 Local Access Setup
+        Add this line to your hosts file:
+        \`\`\`
+        $INGRESS_IP ${{ env.DOMAIN }}
+        \`\`\`
+        
+        **Hosts file locations:**
+        - Windows: \`C:\\Windows\\System32\\drivers\\etc\\hosts\`
+        - Linux/Mac: \`/etc/hosts\`
+        
+        ## 📊 Deployment Details
+        - **Cluster**: ${{ env.CLUSTER_NAME }}
+        - **API Image**: ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}:latest
+        - **Frontend Image**: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:latest
+        - **Commit**: ${{ github.sha }}
+        EOF
