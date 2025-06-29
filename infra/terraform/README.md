@@ -2,6 +2,23 @@
 
 This directory contains Terraform configuration for managing the RandomCorp LKE (Linode Kubernetes Engine) cluster infrastructure.
 
+## 🎯 GitHub Actions Integration
+
+**NEW**: The deployment workflow now uses Terraform for infrastructure management instead of direct API calls. This provides:
+
+- ✅ **Infrastructure as Code**: All infrastructure is version controlled
+- ✅ **Idempotent deployments**: Safe to run multiple times
+- ✅ **State management**: Terraform tracks current infrastructure state
+- ✅ **Better error handling**: More robust deployment process
+- ✅ **Plan before apply**: See what changes will be made
+
+The GitHub Actions workflow (`.github/workflows/deploy.yml`) automatically:
+1. Configures Terraform with your secrets
+2. Plans infrastructure changes
+3. Applies changes only when needed
+4. Generates kubeconfig for kubectl access
+5. Deploys applications to the cluster
+
 ## 🚀 Quick Start
 
 1. **Install Terraform**

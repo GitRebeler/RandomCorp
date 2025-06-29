@@ -8,6 +8,14 @@ terraform {
       source  = "linode/linode"
       version = "~> 2.0"
     }
+    local = {
+      source  = "hashicorp/local"
+      version = "~> 2.0"
+    }
+    time = {
+      source  = "hashicorp/time"
+      version = "~> 0.9"
+    }
   }
 }
 
@@ -47,25 +55,17 @@ resource "linode_lke_cluster" "randomcorp" {
   }
 }
 
+# Wait for cluster to be ready before generating kubeconfig
+resource "time_sleep" "wait_for_cluster" {
+  depends_on = [linode_lke_cluster.randomcorp]
+  create_duration = "30s"
+}
+
 # Generate kubeconfig file
 resource "local_file" "kubeconfig" {
   content         = base64decode(linode_lke_cluster.randomcorp.kubeconfig)
-  filename        = pathexpand(var.kubeconfig_path)
+  filename        = var.kubeconfig_path
   file_permission = "0600"
   
-  depends_on = [linode_lke_cluster.randomcorp]
-}
-
-# Optional: Create a separate namespace for RandomCorp (if desired)
-resource "kubernetes_namespace" "randomcorp" {
-  count = var.create_namespace ? 1 : 0
-  
-  metadata {
-    name = "randomcorp"
-    labels = {
-      app = "randomcorp"
-    }
-  }
-  
-  depends_on = [local_file.kubeconfig]
+  depends_on = [time_sleep.wait_for_cluster]
 }

@@ -36,6 +36,12 @@ output "kubeconfig_path" {
   value       = local_file.kubeconfig.filename
 }
 
+output "kubeconfig_content" {
+  description = "Base64 encoded kubeconfig content"
+  value       = linode_lke_cluster.randomcorp.kubeconfig
+  sensitive   = true
+}
+
 output "node_pools" {
   description = "Information about the cluster node pools"
   value = [

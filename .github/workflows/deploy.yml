@@ -84,10 +84,11 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Install Linode CLI
-      run: |
-        curl -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
-          https://api.linode.com/v4/account
+    - name: Set up Terraform
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+        terraform_wrapper: false  # Allows capturing raw output
 
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
@@ -98,90 +99,156 @@ jobs:
       run: |
         curl -s https://fluxcd.io/install.sh | sudo bash
 
-    - name: Check for existing cluster
-      id: check-cluster
+    - name: Configure Terraform backend and variables
       run: |
-        if curl -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
-           "https://api.linode.com/v4/lke/clusters" | \
-           jq -e '.data[] | select(.label == "${{ env.CLUSTER_NAME }}")' > /dev/null; then
-          echo "cluster_exists=true" >> $GITHUB_OUTPUT
-          echo "✅ Cluster ${{ env.CLUSTER_NAME }} exists"
-        else
-          echo "cluster_exists=false" >> $GITHUB_OUTPUT
-          echo "❌ Cluster ${{ env.CLUSTER_NAME }} does not exist"
-        fi
+        cd infra/terraform
+        
+        # Create terraform.tfvars file
+        cat > terraform.tfvars << EOF
+        linode_token = "${{ secrets.LINODE_TOKEN }}"
+        cluster_name = "${{ env.CLUSTER_NAME }}"
+        region = "us-central"
+        k8s_version = "1.33"
+        node_type = "g6-standard-2"
+        node_count = 3
+        autoscaler_min = 3
+        autoscaler_max = 10
+        enable_high_memory_pool = false
+        tags = ["randomcorp", "production", "lke", "github-actions"]
+        environment = "production"
+        kubeconfig_path = "./kubeconfig.yaml"
+        create_namespace = false
+        EOF
+        
+        echo "✅ Terraform variables configured"
 
-    - name: Create LKE cluster if not exists
-      if: steps.check-cluster.outputs.cluster_exists == 'false'
+    - name: Cache Terraform state
+      uses: actions/cache@v3
+      with:
+        path: infra/terraform/terraform.tfstate*
+        key: terraform-state-${{ env.CLUSTER_NAME }}-${{ github.ref_name }}
+        restore-keys: |
+          terraform-state-${{ env.CLUSTER_NAME }}-
+
+    - name: Initialize Terraform
       run: |
-        echo "🚀 Creating new LKE cluster: ${{ env.CLUSTER_NAME }}"
+        cd infra/terraform
+        terraform init
+        echo "✅ Terraform initialized"
+
+    - name: Validate Terraform configuration
+      run: |
+        cd infra/terraform
+        terraform validate
+        echo "✅ Terraform configuration is valid"
+
+    - name: Plan Terraform changes
+      run: |
+        cd infra/terraform
+        terraform plan -out=tfplan -detailed-exitcode
+        PLAN_EXIT_CODE=$?
         
-        # Create cluster
-        CLUSTER_RESPONSE=$(curl -X POST \
-          -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
-          -H "Content-Type: application/json" \
-          -d '{
-            "label": "${{ env.CLSTER_NAME }}",
-            "region": "us-central",
-            "k8s_version": "1.33",
-            "tags": ["randomcorp", "production"],
-            "node_pools": [
-              {
-                "type": "g6-standard-2",
-                "count": 3,
-                "autoscaler": {
-                  "enabled": true,
-                  "min": 3,
-                  "max": 10
-                }
-              }
-            ]
-          }' \
-          "https://api.linode.com/v4/lke/clusters")
-        
-        CLUSTER_ID=$(echo $CLUSTER_RESPONSE | jq -r '.id')
-        echo "CLUSTER_ID=$CLUSTER_ID" >> $GITHUB_ENV
-        echo "📋 Cluster ID: $CLUSTER_ID"
-        
-        # Wait for cluster to be ready
-        echo "⏳ Waiting for cluster to be ready..."
-        while true; do
-          STATUS=$(curl -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
-            "https://api.linode.com/v4/lke/clusters/$CLUSTER_ID" | \
-            jq -r '.status')
+        if [ $PLAN_EXIT_CODE -eq 0 ]; then
+          echo "No changes needed"
+          echo "TERRAFORM_CHANGES=false" >> $GITHUB_ENV
+          echo "::notice title=Terraform Plan::No infrastructure changes required"
+        elif [ $PLAN_EXIT_CODE -eq 2 ]; then
+          echo "Changes detected, will apply"
+          echo "TERRAFORM_CHANGES=true" >> $GITHUB_ENV
+          echo "::notice title=Terraform Plan::Infrastructure changes detected and will be applied"
           
-          if [ "$STATUS" = "ready" ]; then
-            echo "✅ Cluster is ready!"
+          # Show plan summary
+          echo "📋 Terraform Plan Summary:"
+          terraform show -no-color tfplan | head -50
+        else
+          echo "Terraform plan failed"
+          echo "::error title=Terraform Plan Failed::The terraform plan command failed with exit code $PLAN_EXIT_CODE"
+          exit 1
+        fi
+        
+        echo "✅ Terraform plan completed"
+
+    - name: Apply Terraform changes
+      id: terraform-apply
+      run: |
+        cd infra/terraform
+        
+        if [ "$TERRAFORM_CHANGES" = "true" ]; then
+          echo "🚀 Applying Terraform changes..."
+          terraform apply -auto-approve tfplan
+        else
+          echo "📋 No Terraform changes to apply"
+          # Still need to refresh to get outputs
+          terraform refresh
+        fi
+        
+        # Get outputs and set as GitHub Actions outputs
+        CLUSTER_ID=$(terraform output -raw cluster_id)
+        CLUSTER_STATUS=$(terraform output -raw cluster_status)
+        CLUSTER_REGION=$(terraform output -raw cluster_region)
+        KUBECONFIG_PATH=$(terraform output -raw kubeconfig_path)
+        
+        echo "CLUSTER_ID=$CLUSTER_ID" >> $GITHUB_ENV
+        echo "cluster_id=$CLUSTER_ID" >> $GITHUB_OUTPUT
+        echo "cluster_status=$CLUSTER_STATUS" >> $GITHUB_OUTPUT
+        echo "cluster_region=$CLUSTER_REGION" >> $GITHUB_OUTPUT
+        echo "kubeconfig_path=$KUBECONFIG_PATH" >> $GITHUB_OUTPUT
+        
+        echo "📋 Cluster ID: $CLUSTER_ID"
+        echo "📋 Cluster Status: $CLUSTER_STATUS"
+        echo "📋 Cluster Region: $CLUSTER_REGION"
+        
+        # Wait for cluster to be ready if it's not already
+        if [ "$CLUSTER_STATUS" != "ready" ]; then
+          echo "⏳ Waiting for cluster to be ready..."
+          for i in {1..20}; do
+            terraform refresh > /dev/null 2>&1
+            CURRENT_STATUS=$(terraform output -raw cluster_status)
+            
+            if [ "$CURRENT_STATUS" = "ready" ]; then
+              echo "✅ Cluster is ready!"
+              echo "cluster_status=ready" >> $GITHUB_OUTPUT
+              break
+            fi
+            
+            echo "🔄 Cluster status: $CURRENT_STATUS, waiting... (attempt $i/20)"
+            sleep 30
+          done
+        fi
+        
+        echo "✅ LKE cluster deployed/updated via Terraform"
+
+    - name: Configure kubectl with Terraform-generated kubeconfig
+      run: |
+        cd infra/terraform
+        
+        # Verify kubeconfig was created
+        if [ ! -f "kubeconfig.yaml" ]; then
+          echo "❌ Kubeconfig file not found"
+          exit 1
+        fi
+        
+        # Copy kubeconfig and set permissions
+        cp kubeconfig.yaml ../../kubeconfig.yaml
+        chmod 600 ../../kubeconfig.yaml
+        
+        export KUBECONFIG=$(pwd)/../../kubeconfig.yaml
+        echo "KUBECONFIG=$(pwd)/../../kubeconfig.yaml" >> $GITHUB_ENV
+        
+        # Test connection with retry logic
+        echo "🔗 Testing kubectl connection..."
+        for i in {1..10}; do
+          if kubectl cluster-info > /dev/null 2>&1; then
+            echo "✅ kubectl connection successful"
+            kubectl cluster-info
+            kubectl get nodes
             break
           fi
-          
-          echo "🔄 Cluster status: $STATUS, waiting..."
-          sleep 30
+          echo "⏳ Waiting for cluster API to be available... (attempt $i/10)"
+          sleep 15
         done
-
-    - name: Get cluster ID for existing cluster
-      if: steps.check-cluster.outputs.cluster_exists == 'true'
-      run: |
-        CLUSTER_ID=$(curl -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
-          "https://api.linode.com/v4/lke/clusters" | \
-          jq -r '.data[] | select(.label == "${{ env.CLUSTER_NAME }}") | .id')
-        echo "CLUSTER_ID=$CLUSTER_ID" >> $GITHUB_ENV
-        echo "📋 Using existing cluster ID: $CLUSTER_ID"
-
-    - name: Get kubeconfig
-      run: |
-        echo "📥 Downloading kubeconfig..."
-        KUBECONFIG_RESPONSE=$(curl -X GET \
-          -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
-          "https://api.linode.com/v4/lke/clusters/$CLUSTER_ID/kubeconfig")
         
-        echo "$KUBECONFIG_RESPONSE" | jq -r '.kubeconfig' | base64 -d > kubeconfig.yaml
-        export KUBECONFIG=kubeconfig.yaml
-        echo "KUBECONFIG=$(pwd)/kubeconfig.yaml" >> $GITHUB_ENV
-        
-        # Test connection
-        kubectl cluster-info
-        kubectl get nodes
+        echo "✅ kubectl configured with Terraform-generated kubeconfig"
 
     - name: Install NGINX Ingress Controller
       run: |
@@ -346,6 +413,12 @@ jobs:
         - [API](http://${{ env.DOMAIN }}/api/)
         - [API Documentation](http://${{ env.DOMAIN }}/api/docs)
         
+        ## 🏗️ Infrastructure Details (Terraform)
+        - **Cluster ID**: \`${{ steps.terraform-apply.outputs.cluster_id }}\`
+        - **Cluster Status**: \`${{ steps.terraform-apply.outputs.cluster_status }}\`
+        - **Cluster Region**: \`${{ steps.terraform-apply.outputs.cluster_region }}\`
+        - **Deployment Method**: Terraform (Infrastructure as Code)
+        
         ## 📝 Local Access Setup
         Add this line to your hosts file:
         \`\`\`
@@ -361,4 +434,5 @@ jobs:
         - **API Image**: ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}:latest
         - **Frontend Image**: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:latest
         - **Commit**: ${{ github.sha }}
+        - **Infrastructure**: Managed by Terraform
         EOF
