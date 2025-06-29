@@ -256,7 +256,7 @@ async def save_complete_submission(submission_data: Dict) -> None:
         global in_memory_submissions
         in_memory_submissions.append(submission_data)
 
-@app.get("/")
+@app.get("/api/")
 async def root():
     """Enhanced async root endpoint with system information"""
     try:
@@ -285,12 +285,12 @@ async def root():
         logger.error(f"❌ Error in root endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail="Root endpoint error")
 
-@app.get("/health")
+@app.get("/api/health")
 async def health_check():
     """Health check endpoint for monitoring"""
     return {"status": "healthy", "service": "Random Corp API"}
 
-@app.post("/submit", response_model=SubmissionResponse)
+@app.post("/api/submit", response_model=SubmissionResponse)
 async def submit_names(submission: SubmissionRequest, background_tasks: BackgroundTasks):
     """
     Process name submission asynchronously with background tasks
@@ -371,7 +371,7 @@ async def submit_names(submission: SubmissionRequest, background_tasks: Backgrou
         logger.error(f"❌ Error processing async submission: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error occurred during async processing")
 
-@app.post("/submit/batch", response_model=BatchSubmissionResponse)
+@app.post("/api/submit/batch", response_model=BatchSubmissionResponse)
 async def submit_names_batch(batch_request: BatchSubmissionRequest, background_tasks: BackgroundTasks):
     """
     Process multiple name submissions concurrently using async batch processing
@@ -460,7 +460,7 @@ async def submit_names_batch(batch_request: BatchSubmissionRequest, background_t
         logger.error(f"❌ Error processing async batch submission: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error occurred during batch processing")
 
-@app.get("/stats", response_model=StatsResponse)
+@app.get("/api/stats", response_model=StatsResponse)
 async def get_stats():
     """
     Get comprehensive API statistics from database or in-memory storage
@@ -555,7 +555,7 @@ async def get_stats():
         logger.error(f"❌ Error generating stats: {str(e)}")
         raise HTTPException(status_code=500, detail="Error retrieving API statistics")
 
-@app.get("/submissions")
+@app.get("/api/submissions")
 async def get_submissions(limit: int = 10, offset: int = 0):
     """
     Get paginated submissions from database or in-memory storage
