@@ -286,6 +286,11 @@ async def health_check():
     """Health check endpoint for monitoring"""
     return {"status": "healthy", "service": "Random Corp API"}
 
+@app.get("/health")
+async def kubernetes_health_check():
+    """Health check endpoint for Kubernetes probes"""
+    return {"status": "healthy", "service": "Random Corp API"}
+
 @app.post("/api/submit", response_model=SubmissionResponse)
 async def submit_names(submission: SubmissionRequest, background_tasks: BackgroundTasks):
     """
