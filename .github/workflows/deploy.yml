@@ -321,7 +321,7 @@ jobs:
         echo "🌐 Application URLs:"
         echo "  Frontend: http://${{ env.DOMAIN }}/"
         echo " -or- "
-        echo "  Frontend: http://${{ INGRESS_IP }}/"
+        echo "  Frontend: http://$INGRESS_IP/"
         echo "  API: http://${{ env.DOMAIN }}/api/"
         echo "  API Docs: http://${{ env.DOMAIN }}/api/docs"
         echo ""
