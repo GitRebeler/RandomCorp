@@ -8,7 +8,7 @@
 # Cluster Configuration
 cluster_name = "randomcorp-lke"
 region       = "us-east"
-k8s_version  = "1.29"
+k8s_version  = "1.33"
 
 # Node Configuration
 node_type    = "g6-standard-2"  # 2 vCPUs, 4GB RAM
