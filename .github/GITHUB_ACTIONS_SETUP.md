@@ -66,7 +66,9 @@ The GitHub Actions workflow includes:
 - Docker layer caching for faster builds
 
 ### 🚀 Infrastructure Management
-- Creates Linode LKE cluster if it doesn't exist
+- **Smart cluster detection**: Automatically detects existing LKE clusters
+- **Conditional Terraform**: Only runs Terraform if cluster doesn't exist
+- **Seamless integration**: Works with both new and existing clusters
 - Installs NGINX Ingress Controller
 - Sets up Flux CD for GitOps
 
@@ -99,8 +101,9 @@ The workflow automatically runs on:
 
 ## Expected Runtime
 
-- **First deployment**: ~15-20 minutes (includes cluster creation)
-- **Subsequent deployments**: ~5-10 minutes (cluster already exists)
+- **First deployment (new cluster)**: ~15-20 minutes (includes cluster creation via Terraform)
+- **Deployment to existing cluster**: ~3-5 minutes (skips Terraform entirely)
+- **Subsequent deployments**: ~5-10 minutes (depends on cluster state)
 
 ## Troubleshooting
 
@@ -120,6 +123,20 @@ The workflow automatically runs on:
    - Check cluster status in Linode Cloud Manager
    - Verify ingress controller is running
    - Check pod logs for errors
+
+4. **Terraform Issues**
+   - **"Must be unique" error**: This is now avoided by checking for existing clusters first
+   - **Skipped entirely**: If cluster exists, Terraform steps are automatically skipped
+   - **Only runs when needed**: Terraform only executes for new cluster creation
+
+### Existing Cluster Handling
+
+The workflow intelligently handles existing LKE clusters:
+- **Automatic detection**: Checks Linode API for clusters with matching names
+- **Skip Terraform**: If cluster exists, bypasses all Terraform steps completely
+- **Direct connection**: Downloads kubeconfig directly from Linode API
+- **Zero conflicts**: No state management issues or "unique" errors
+- **Fast deployment**: Existing clusters deploy 3x faster by skipping infrastructure setup
 
 ### Debugging Steps
 

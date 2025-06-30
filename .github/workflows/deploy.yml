@@ -84,12 +84,6 @@ jobs:
         cache-from: type=gha
         cache-to: type=gha,mode=max
 
-    - name: Set up Terraform
-      uses: hashicorp/setup-terraform@v3
-      with:
-        terraform_version: 1.6.0
-        terraform_wrapper: false  # Allows capturing raw output
-
     - name: Set up kubectl
       uses: azure/setup-kubectl@v3
       with:
@@ -99,7 +93,34 @@ jobs:
       run: |
         curl -s https://fluxcd.io/install.sh | sudo bash
 
-    - name: Configure Terraform backend and variables
+    - name: Check for existing cluster
+      id: check-cluster
+      run: |
+        echo "🔍 Checking if LKE cluster already exists..."
+        
+        EXISTING_CLUSTER=$(curl -s -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+          "https://api.linode.com/v4/lke/clusters" | \
+          jq -r '.data[] | select(.label == "${{ env.CLUSTER_NAME }}") | .id' || echo "")
+        
+        if [ -n "$EXISTING_CLUSTER" ] && [ "$EXISTING_CLUSTER" != "null" ]; then
+          echo "✅ Found existing cluster: ${{ env.CLUSTER_NAME }} (ID: $EXISTING_CLUSTER)"
+          echo "cluster_exists=true" >> $GITHUB_OUTPUT
+          echo "cluster_id=$EXISTING_CLUSTER" >> $GITHUB_OUTPUT
+          echo "CLUSTER_ID=$EXISTING_CLUSTER" >> $GITHUB_ENV
+        else
+          echo "❌ Cluster ${{ env.CLUSTER_NAME }} not found, will create with Terraform"
+          echo "cluster_exists=false" >> $GITHUB_OUTPUT
+        fi
+
+    - name: Set up Terraform (if cluster doesn't exist)
+      if: steps.check-cluster.outputs.cluster_exists == 'false'
+      uses: hashicorp/setup-terraform@v3
+      with:
+        terraform_version: 1.6.0
+        terraform_wrapper: false
+
+    - name: Configure Terraform variables (if cluster doesn't exist)
+      if: steps.check-cluster.outputs.cluster_exists == 'false'
       run: |
         cd infra/terraform
         
@@ -122,7 +143,8 @@ jobs:
         
         echo "✅ Terraform variables configured"
 
-    - name: Cache Terraform state
+    - name: Cache Terraform state (if cluster doesn't exist)
+      if: steps.check-cluster.outputs.cluster_exists == 'false'
       uses: actions/cache@v3
       with:
         path: infra/terraform/terraform.tfstate*
@@ -130,19 +152,22 @@ jobs:
         restore-keys: |
           terraform-state-${{ env.CLUSTER_NAME }}-
 
-    - name: Initialize Terraform
+    - name: Initialize Terraform (if cluster doesn't exist)
+      if: steps.check-cluster.outputs.cluster_exists == 'false'
       run: |
         cd infra/terraform
         terraform init
         echo "✅ Terraform initialized"
 
-    - name: Validate Terraform configuration
+    - name: Validate Terraform configuration (if cluster doesn't exist)
+      if: steps.check-cluster.outputs.cluster_exists == 'false'
       run: |
         cd infra/terraform
         terraform validate
         echo "✅ Terraform configuration is valid"
 
-    - name: Plan Terraform changes
+    - name: Plan Terraform changes (if cluster doesn't exist)
+      if: steps.check-cluster.outputs.cluster_exists == 'false'
       run: |
         cd infra/terraform
         
@@ -172,7 +197,8 @@ jobs:
         
         echo "✅ Terraform plan completed"
 
-    - name: Apply Terraform changes
+    - name: Apply Terraform changes (if cluster doesn't exist)
+      if: steps.check-cluster.outputs.cluster_exists == 'false'
       id: terraform-apply
       run: |
         cd infra/terraform
@@ -223,6 +249,7 @@ jobs:
         echo "✅ LKE cluster deployed/updated via Terraform"
 
     - name: Configure kubectl with Terraform-generated kubeconfig
+      if: steps.check-cluster.outputs.cluster_exists == 'false'
       run: |
         cd infra/terraform
         
@@ -237,7 +264,7 @@ jobs:
         chmod 600 ../../kubeconfig.yaml
         
         export KUBECONFIG=$(pwd)/../../kubeconfig.yaml
-        echo "KUBECONFIG=$(pwd)/../../kubeconfig.yaml" >> $GITHUB_ENV
+        echo "KUBECONFIG=$(pwd)/kubeconfig.yaml" >> $GITHUB_ENV
         
         # Test connection with retry logic
         echo "🔗 Testing kubectl connection..."
@@ -253,6 +280,37 @@ jobs:
         done
         
         echo "✅ kubectl configured with Terraform-generated kubeconfig"
+
+    - name: Configure kubectl with existing cluster
+      if: steps.check-cluster.outputs.cluster_exists == 'true'
+      run: |
+        echo "📥 Downloading kubeconfig for existing cluster..."
+        CLUSTER_ID="${{ steps.check-cluster.outputs.cluster_id }}"
+        
+        KUBECONFIG_RESPONSE=$(curl -X GET \
+          -H "Authorization: Bearer ${{ secrets.LINODE_TOKEN }}" \
+          "https://api.linode.com/v4/lke/clusters/$CLUSTER_ID/kubeconfig")
+        
+        echo "$KUBECONFIG_RESPONSE" | jq -r '.kubeconfig' | base64 -d > kubeconfig.yaml
+        chmod 600 kubeconfig.yaml
+        
+        export KUBECONFIG=$(pwd)/kubeconfig.yaml
+        echo "KUBECONFIG=$(pwd)/kubeconfig.yaml" >> $GITHUB_ENV
+        
+        # Test connection
+        echo "🔗 Testing kubectl connection to existing cluster..."
+        for i in {1..10}; do
+          if kubectl cluster-info > /dev/null 2>&1; then
+            echo "✅ kubectl connection successful"
+            kubectl cluster-info
+            kubectl get nodes
+            break
+          fi
+          echo "⏳ Waiting for cluster API to be available... (attempt $i/10)"
+          sleep 15
+        done
+        
+        echo "✅ kubectl configured with existing cluster"
 
     - name: Install NGINX Ingress Controller
       run: |
