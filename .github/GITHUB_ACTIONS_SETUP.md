@@ -96,8 +96,15 @@ You can manually trigger the deployment by:
 ## Automatic Triggers
 
 The workflow automatically runs on:
-- Push to `main` or `master` branch
+- Push to `main` or `master` branch (excluding Helm values and documentation)
 - Pull requests to `main` or `master` branch
+
+### Loop Prevention
+The workflow includes multiple safeguards to prevent infinite loops:
+- **Path exclusions**: Ignores changes to `helm-charts/**/values.yaml`
+- **Skip CI tags**: Automation commits include `[skip ci]` 
+- **Smart detection**: Checks if previous commit was automation-generated
+- **Documentation exclusions**: Ignores `.md` file changes
 
 ## Expected Runtime
 
@@ -128,6 +135,12 @@ The workflow automatically runs on:
    - **"Must be unique" error**: This is now avoided by checking for existing clusters first
    - **Skipped entirely**: If cluster exists, Terraform steps are automatically skipped
    - **Only runs when needed**: Terraform only executes for new cluster creation
+
+5. **Pipeline Loop Prevention**
+   - **Path exclusions**: Workflow ignores changes to `helm-charts/**/values.yaml` to prevent loops
+   - **Skip CI commits**: Automation commits include `[skip ci]` to prevent re-triggering
+   - **Smart detection**: Checks commit history to avoid unnecessary runs
+   - **Documentation ignored**: Changes to `.md` files don't trigger deployments
 
 ### Existing Cluster Handling
 

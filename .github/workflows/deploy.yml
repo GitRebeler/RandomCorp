@@ -3,6 +3,10 @@ name: Deploy RandomCorp to LKE
 on:
   push:
     branches: [ main, master ]
+    paths-ignore:
+      - 'helm-charts/**/values.yaml'  # Ignore changes to Helm values to prevent loops
+      - '*.md'                        # Ignore documentation changes
+      - '.github/GITHUB_ACTIONS_SETUP.md'
   pull_request:
     branches: [ main, master ]
   workflow_dispatch:
@@ -364,6 +368,18 @@ jobs:
 
     - name: Commit and push updated values
       run: |
+        # Check if this workflow was triggered by a previous automation commit
+        LAST_COMMIT_MSG=$(git log -1 --pretty=format:"%s")
+        if [[ "$LAST_COMMIT_MSG" == *"Update image tags to"* ]] || [[ "$LAST_COMMIT_MSG" == *"[skip ci]"* ]]; then
+          echo "⚠️ Detected automation commit in history, checking if update is really needed..."
+          
+          # Only proceed if there are actual changes needed
+          if git diff --quiet; then
+            echo "🔄 No changes needed, skipping commit to prevent loop"
+            exit 0
+          fi
+        fi
+        
         git config --local user.email "action@github.com"
         git config --local user.name "GitHub Action"
         
@@ -371,7 +387,7 @@ jobs:
           echo "No changes to commit"
         else
           git add helm-charts/randomcorp/values.yaml
-          git commit -m "Update image tags to ${{ github.sha }}"
+          git commit -m "Update image tags to ${{ github.sha }} [skip ci]"
           git push
         fi
 
