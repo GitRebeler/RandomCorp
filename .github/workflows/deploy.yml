@@ -394,12 +394,28 @@ jobs:
     - name: Wait for Flux to deploy changes
       run: |
         echo "⏳ Waiting for Flux to reconcile and deploy changes..."
+        
+        # Check Flux status first
+        echo "📋 Checking Flux status..."
+        flux get all
+        
+        # Wait a bit for initial sync
         sleep 60
         
-        # Check if HelmRelease exists and is ready
+        # Check HelmRelease status with details
+        echo "📦 Checking HelmRelease status..."
+        kubectl get helmrelease -A
+        kubectl describe helmrelease randomcorp -n default || echo "HelmRelease not found in default namespace"
+        
+        # Wait for HelmRelease to be ready with timeout
+        echo "⏳ Waiting for HelmRelease to be ready..."
         kubectl wait --for=condition=Ready helmrelease/randomcorp \
           --namespace=default \
-          --timeout=600s || true
+          --timeout=600s || echo "⚠️ HelmRelease not ready within timeout, continuing..."
+        
+        # Show final status
+        echo "📊 Final deployment status..."
+        kubectl get pods,services,ingress -A
 
     - name: Get ingress IP
       id: get-ip
@@ -431,23 +447,44 @@ jobs:
       run: |
         echo "🔍 Verifying deployment..."
         
-        # Check pods
-        kubectl get pods -l app.kubernetes.io/name=randomcorp
-        kubectl get pods -l app.kubernetes.io/component=frontend
+        # Check Helm releases
+        echo "📦 Checking Helm releases..."
+        kubectl get helmrelease -A
         
-        # Check services
-        kubectl get services
+        # Check pods with more detail
+        echo "🏃 Checking pods..."
+        kubectl get pods -A -o wide
         
-        # Check ingress
-        kubectl get ingress
+        # Check services with more detail
+        echo "🔗 Checking services..."
+        kubectl get services -A
         
-        # Test API health endpoint
+        # Check ingress with more detail
+        echo "🌐 Checking ingress..."
+        kubectl get ingress -A -o wide
+        kubectl describe ingress -A
+        
+        # Test API health endpoint with detailed output
         INGRESS_IP="${{ steps.get-ip.outputs.ingress_ip }}"
-        echo "🏥 Testing API health endpoint..."
+        echo "🏥 Testing API health endpoint at http://$INGRESS_IP/api/health..."
         
         for i in {1..10}; do
-          if curl -f "http://$INGRESS_IP/api/health" > /dev/null 2>&1; then
+          HTTP_CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://$INGRESS_IP/api/health" || echo "000")
+          echo "Attempt $i: HTTP $HTTP_CODE"
+          
+          if [ "$HTTP_CODE" = "200" ]; then
             echo "✅ API health check passed"
+            curl -s "http://$INGRESS_IP/api/health" | head -10
+            break
+          elif [ "$HTTP_CODE" = "404" ]; then
+            echo "⚠️ Got 404 - checking ingress configuration..."
+            kubectl get ingress -A
+            echo "🔧 Trying frontend endpoint..."
+            curl -I "http://$INGRESS_IP/" || echo "Frontend also not accessible"
+          fi
+          
+          echo "⏳ Waiting for API to be ready... (attempt $i/10)"
+          sleep 30
             break
           fi
           echo "⏳ Waiting for API to be ready... (attempt $i/10)"

@@ -131,7 +131,15 @@ The workflow includes multiple safeguards to prevent infinite loops:
    - Verify ingress controller is running
    - Check pod logs for errors
 
-4. **Terraform Issues**
+4. **NGINX 404 Issues (IP Access)**
+   - **Root cause**: Ingress may not be properly configured for direct IP access
+   - **Check ingress**: Run `kubectl get ingress -A` to verify ingress rules
+   - **Check services**: Run `kubectl get services -A` to verify backend services
+   - **Check pods**: Run `kubectl get pods -A` to ensure application pods are running
+   - **Test with domain**: Try accessing via `http://randomcorp.local` (add to hosts file first)
+   - **Backend health**: Test API directly: `curl http://INGRESS_IP/api/health`
+
+5. **Terraform Issues**
    - **"Must be unique" error**: This is now avoided by checking for existing clusters first
    - **Skipped entirely**: If cluster exists, Terraform steps are automatically skipped
    - **Only runs when needed**: Terraform only executes for new cluster creation
@@ -157,6 +165,39 @@ The workflow intelligently handles existing LKE clusters:
 2. Use `kubectl` commands in the workflow to inspect resources
 3. Check Flux status: `flux get all`
 4. Verify Helm releases: `helm list -A`
+
+### Specific Issue: NGINX 404 on Direct IP Access
+
+If you're getting 404 errors when accessing the ingress IP directly:
+
+#### Quick Diagnosis
+```bash
+# 1. Check if ingress is deployed
+kubectl get ingress -A
+
+# 2. Check if services exist
+kubectl get services -A
+
+# 3. Check if pods are running
+kubectl get pods -A
+
+# 4. Check ingress controller logs
+kubectl logs -n ingress-nginx deployment/ingress-nginx-controller
+
+# 5. Test API endpoint directly
+curl http://45.79.63.243/api/health
+```
+
+#### Common Solutions
+1. **Use domain instead of IP**: Add `45.79.63.243 randomcorp.local` to your hosts file
+2. **Wait for deployment**: Applications may still be starting up
+3. **Check Flux sync**: Run `kubectl get helmrelease -A` to see deployment status
+4. **Verify ingress rules**: The ingress should have both domain and IP-based rules
+
+#### Expected Behavior
+- `http://45.79.63.243/` → Frontend application
+- `http://45.79.63.243/api/health` → API health check
+- `http://randomcorp.local/` → Frontend (with hosts file entry)
 
 ## Security Considerations
 
