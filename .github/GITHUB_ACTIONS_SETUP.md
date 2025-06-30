@@ -159,4 +159,4 @@ The LKE cluster includes auto-scaling:
 - **Maximum**: 10 nodes
 - **Auto-scaling**: Based on resource usage
 
-Monitor your Linode costs and adjust node types/counts as needed.
+Monitor your Linode costs and adjust node types/counts as needed...
