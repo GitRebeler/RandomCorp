@@ -9,6 +9,10 @@ export const buildApiUrl = (endpoint: string): string => {
   
   // If using relative URL (ingress setup), ensure proper path construction
   if (baseUrl.startsWith('/')) {
+    // If endpoint already starts with the base URL, return as-is
+    if (endpoint.startsWith(baseUrl)) {
+      return endpoint;
+    }
     // Remove leading slash from endpoint to avoid double slashes
     const normalizedEndpoint = endpoint.startsWith('/') ? endpoint.substring(1) : endpoint;
     // Ensure base URL ends with slash for proper concatenation
