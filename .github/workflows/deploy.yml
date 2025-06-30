@@ -336,6 +336,8 @@ jobs:
 
     - name: Bootstrap Flux CD
       if: steps.check-flux.outputs.flux_installed == 'false'
+      env:
+        GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
       run: |
         echo "🔧 Bootstrapping Flux CD..."
         flux bootstrap github \
@@ -343,8 +345,7 @@ jobs:
           --repository=RandomCorp \
           --branch=master \
           --path=clusters/linode-lke \
-          --personal \
-          --token-auth
+          --personal
 
     - name: Update Helm values with current image tags
       run: |
@@ -463,6 +464,19 @@ jobs:
       run: |
         INGRESS_IP="${{ steps.get-ip.outputs.ingress_ip }}"
         
+        # Determine deployment method and cluster info
+        if [ "${{ steps.check-cluster.outputs.cluster_exists }}" = "true" ]; then
+          DEPLOYMENT_METHOD="Existing Cluster (Direct API)"
+          CLUSTER_ID="${{ steps.check-cluster.outputs.cluster_id }}"
+          CLUSTER_STATUS="ready"
+          CLUSTER_REGION="us-central"
+        else
+          DEPLOYMENT_METHOD="Terraform (Infrastructure as Code)"
+          CLUSTER_ID="${{ steps.terraform-apply.outputs.cluster_id }}"
+          CLUSTER_STATUS="${{ steps.terraform-apply.outputs.cluster_status }}"
+          CLUSTER_REGION="${{ steps.terraform-apply.outputs.cluster_region }}"
+        fi
+        
         cat >> $GITHUB_STEP_SUMMARY << EOF
         # 🎉 RandomCorp Deployment Successful!
         
@@ -475,11 +489,11 @@ jobs:
         - [API](http://${{ env.DOMAIN }}/api/)
         - [API Documentation](http://${{ env.DOMAIN }}/api/docs)
         
-        ## 🏗️ Infrastructure Details (Terraform)
-        - **Cluster ID**: \`${{ steps.terraform-apply.outputs.cluster_id }}\`
-        - **Cluster Status**: \`${{ steps.terraform-apply.outputs.cluster_status }}\`
-        - **Cluster Region**: \`${{ steps.terraform-apply.outputs.cluster_region }}\`
-        - **Deployment Method**: Terraform (Infrastructure as Code)
+        ## 🏗️ Infrastructure Details
+        - **Cluster ID**: \`$CLUSTER_ID\`
+        - **Cluster Status**: \`$CLUSTER_STATUS\`
+        - **Cluster Region**: \`$CLUSTER_REGION\`
+        - **Deployment Method**: $DEPLOYMENT_METHOD
         
         ## 📝 Local Access Setup
         Add this line to your hosts file:
@@ -496,5 +510,5 @@ jobs:
         - **API Image**: ${{ env.REGISTRY }}/${{ env.API_IMAGE_NAME }}:latest
         - **Frontend Image**: ${{ env.REGISTRY }}/${{ env.FRONTEND_IMAGE_NAME }}:latest
         - **Commit**: ${{ github.sha }}
-        - **Infrastructure**: Managed by Terraform
+        - **Infrastructure**: $DEPLOYMENT_METHOD
         EOF
