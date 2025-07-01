@@ -34,6 +34,7 @@ class DatabaseManager:
     def _build_connection_string(self) -> str:
         """Build SQL Server connection string from environment variables"""
         # Connection string for SQL Server with ODBC driver
+        # Optimized for Kubernetes networking with better timeouts and retry logic
         conn_str = (
             f"DRIVER={{ODBC Driver 18 for SQL Server}};"
             f"SERVER={self.host},{self.port};"
@@ -41,39 +42,87 @@ class DatabaseManager:
             f"UID={self.username};"
             f"PWD={self.password};"
             f"TrustServerCertificate=yes;"
-            f"Connection Timeout=30;"
+            f"Connection Timeout=90;"      # Increased to 90 seconds for Kubernetes
+            f"Command Timeout=90;"         # Increased command timeout
+            f"Login Timeout=60;"           # Increased login timeout to 60 seconds
+            f"Encrypt=no;"                 # Disable encryption for internal cluster communication
+            f"MultipleActiveResultSets=true;"  # Allow multiple result sets
+            f"ConnectRetryCount=5;"        # Increased retry count
+            f"ConnectRetryInterval=15;"    # Increased wait time between retries
         )
         logger.info(f"🔌 Database connection configured for: {self.host}:{self.port}/{self.database}")
         return conn_str
     
     async def initialize(self):
-        """Initialize database connection pool and create tables"""
+        """Initialize database connection pool and create tables with retry logic"""
         if not self.connection_string:
             raise ValueError("Database host not configured - cannot initialize database")
             
+        max_retries = 5
+        retry_delay = 2  # Start with 2 seconds
+        
+        for attempt in range(max_retries):
+            try:
+                logger.info(f"🚀 Initializing database connection pool (attempt {attempt + 1}/{max_retries})...")
+                
+                # First, test direct connection
+                if not await self.test_direct_connection():
+                    raise Exception("Direct connection test failed")
+                
+                # Create the database if it doesn't exist
+                await self._ensure_database_exists()
+                
+                # Create connection pool with better configuration for Kubernetes
+                self.pool = await aioodbc.create_pool(
+                    dsn=self.connection_string,
+                    minsize=2,        # Minimum connections in pool
+                    maxsize=10,       # Maximum connections in pool
+                    loop=asyncio.get_event_loop()
+                )
+                
+                logger.info("✅ Database connection pool created successfully")
+                
+                # Test the connection pool
+                await self._test_connection_pool()
+                
+                # Create tables if they don't exist
+                await self._create_tables()
+                
+                logger.info("🎯 Database initialization completed successfully")
+                return  # Success, exit retry loop
+                
+            except Exception as e:
+                logger.error(f"❌ Database initialization attempt {attempt + 1} failed: {str(e)}")
+                
+                # Clean up failed pool
+                if self.pool:
+                    try:
+                        self.pool.close()
+                        await self.pool.wait_closed()
+                    except:
+                        pass
+                    self.pool = None
+                
+                if attempt < max_retries - 1:
+                    logger.info(f"⏳ Retrying in {retry_delay} seconds...")
+                    await asyncio.sleep(retry_delay)
+                    retry_delay *= 2  # Exponential backoff
+                else:
+                    logger.error("💥 All database initialization attempts failed!")
+                    raise Exception(f"Failed to initialize database after {max_retries} attempts: {str(e)}")
+    
+    async def _test_connection_pool(self):
+        """Test the connection pool to ensure it's working"""
         try:
-            logger.info("🚀 Initializing database connection pool...")
-            
-            # First, create the database if it doesn't exist
-            await self._ensure_database_exists()
-            
-            # Create connection pool
-            self.pool = await aioodbc.create_pool(
-                dsn=self.connection_string,
-                minsize=1,
-                maxsize=10,
-                loop=asyncio.get_event_loop()
-            )
-            
-            logger.info("✅ Database connection pool created successfully")
-            
-            # Create tables if they don't exist
-            await self._create_tables()
-            
-            logger.info("🎯 Database initialization completed")
-            
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute("SELECT 1")
+                    result = await cursor.fetchone()
+                    if result[0] != 1:
+                        raise Exception("Connection test query failed")
+            logger.info("✅ Database connection pool test successful")
         except Exception as e:
-            logger.error(f"❌ Failed to initialize database: {str(e)}")
+            logger.error(f"❌ Database connection pool test failed: {str(e)}")
             raise
     
     async def _ensure_database_exists(self):
@@ -99,9 +148,16 @@ class DatabaseManager:
                 
                 if not result:
                     logger.info(f"📝 Creating database: {self.database}")
-                    # Create database (cannot use parameters for database name)
-                    await cursor.execute(f"CREATE DATABASE [{self.database}]")
-                    logger.info(f"✅ Database {self.database} created successfully")
+                    try:
+                        # Create database (cannot use parameters for database name)
+                        await cursor.execute(f"CREATE DATABASE [{self.database}]")
+                        logger.info(f"✅ Database {self.database} created successfully")
+                    except Exception as create_e:
+                        # Handle race condition where another pod created the DB in the meantime
+                        if "already exists" in str(create_e):
+                            logger.warning(f"⚠️ Database {self.database} was created by another process.")
+                        else:
+                            raise create_e
                 else:
                     logger.info(f"✅ Database {self.database} already exists")
                     
@@ -188,7 +244,11 @@ class DatabaseManager:
                     return submission_id
                     
         except Exception as e:
-            logger.error(f"❌ Failed to save submission: {str(e)}")
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['connection', 'network', 'timeout', 'unreachable', 'refused']):
+                logger.error(f"❌ Database connection error saving submission: {str(e)}")
+            else:
+                logger.error(f"❌ Database error saving submission: {str(e)}")
             raise
     
     async def save_batch_submissions(self, submissions: List[Dict]) -> List[str]:
@@ -277,7 +337,11 @@ class DatabaseManager:
                     }
                     
         except Exception as e:
-            logger.error(f"❌ Failed to get statistics: {str(e)}")
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['connection', 'network', 'timeout', 'unreachable', 'refused']):
+                logger.error(f"❌ Database connection error getting statistics: {str(e)}")
+            else:
+                logger.error(f"❌ Database error getting statistics: {str(e)}")
             raise
     
     async def get_recent_submissions(self, limit: int = 10) -> List[Dict]:
@@ -393,6 +457,75 @@ class DatabaseManager:
             self.pool.close()
             await self.pool.wait_closed()
             logger.info("🔌 Database connection pool closed")
+    
+    async def is_database_available(self) -> bool:
+        """Check if database connection is available and healthy"""
+        if not self.connection_string:
+            logger.debug("🚫 No connection string configured")
+            return False
+            
+        if not self.pool:
+            logger.debug("🚫 No connection pool available")
+            return False
+            
+        try:
+            async with self.pool.acquire() as conn:
+                async with conn.cursor() as cursor:
+                    await cursor.execute("SELECT 1")
+                    result = await cursor.fetchone()
+                    is_healthy = result[0] == 1
+                    if is_healthy:
+                        logger.debug("✅ Database health check passed")
+                    else:
+                        logger.warning("⚠️ Database health check failed - unexpected result")
+                    return is_healthy
+        except Exception as e:
+            logger.warning(f"⚠️ Database health check failed: {str(e)}")
+            return False
+    
+    async def _ensure_connection_pool(self):
+        """Ensure connection pool is available, reinitialize if needed"""
+        if not self.pool or not await self.is_database_available():
+            logger.warning("🔄 Database connection lost, attempting to reinitialize...")
+            try:
+                if self.pool:
+                    self.pool.close()
+                    await self.pool.wait_closed()
+                
+                await self.initialize()
+                logger.info("✅ Database connection pool reinitialized successfully")
+            except Exception as e:
+                logger.error(f"❌ Failed to reinitialize database connection: {str(e)}")
+                raise
+
+    async def test_direct_connection(self) -> bool:
+        """Test direct database connection without using the pool"""
+        if not self.connection_string:
+            logger.warning("🚫 No connection string configured for direct test")
+            return False
+            
+        try:
+            # Test connection to master database first
+            master_conn_str = self.connection_string.replace(f"DATABASE={self.database};", "DATABASE=master;")
+            logger.info("🔍 Testing direct database connection to master...")
+            
+            conn = await aioodbc.connect(dsn=master_conn_str)
+            try:
+                cursor = await conn.cursor()
+                await cursor.execute("SELECT 1")
+                result = await cursor.fetchone()
+                await cursor.close()
+                success = result[0] == 1
+                if success:
+                    logger.info("✅ Direct database connection test successful")
+                else:
+                    logger.warning("⚠️ Direct database connection test failed - unexpected result")
+                return success
+            finally:
+                await conn.close()
+        except Exception as e:
+            logger.error(f"❌ Direct database connection test failed: {str(e)}")
+            return False
 
 # Global database manager instance - initialized lazily
 db_manager = None

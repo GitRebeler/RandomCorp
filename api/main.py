@@ -42,6 +42,7 @@ app_start_time = datetime.now(timezone.utc)
 @app.on_event("startup")
 async def startup_event():
     """Initialize database connection on startup"""
+    global background_tasks_started
     logger.info("🚀 Starting Random Corp API...")
     try:
         # Check if SQL Server environment variables are set
@@ -56,11 +57,25 @@ async def startup_event():
             logger.info("🔄 Running in demo mode without database")
             # Initialize in-memory storage for demo
             in_memory_submissions.clear()
+        
+        # Start background health check task
+        if not background_tasks_started:
+            asyncio.create_task(periodic_database_health_check())
+            background_tasks_started = True
+            logger.info("🔄 Started periodic database health check")
+        
         logger.info("✅ API startup completed successfully")
     except Exception as e:
         logger.error(f"⚠️ Database initialization failed, running in demo mode: {str(e)}")
         # Initialize in-memory storage as fallback
         in_memory_submissions.clear()
+        
+        # Still start the health check task to try reconnecting later
+        if not background_tasks_started:
+            asyncio.create_task(periodic_database_health_check())
+            background_tasks_started = True
+            logger.info("🔄 Started periodic database health check for reconnection attempts")
+        
         logger.info("✅ API started in demo mode")
 
 @app.on_event("shutdown")
@@ -236,17 +251,29 @@ async def update_stats_async() -> None:
 async def save_complete_submission(submission_data: Dict) -> None:
     """Save complete submission data to database or in-memory storage"""
     try:
-        # Check if database is available
+        # Check if database is available and healthy
         db_manager = get_db_manager()
-        if os.getenv('DB_HOST') and hasattr(db_manager, 'pool') and db_manager.pool:
-            await db_manager.save_submission(submission_data)
-            if debug_mode:
-                logger.debug(f"💾 Complete submission saved to database: {submission_data['submission_id']}")
-        else:
-            # Save to in-memory storage for demo mode
-            in_memory_submissions.append(submission_data)
-            if debug_mode:
-                logger.debug(f"💾 Complete submission saved to memory: {submission_data['submission_id']}")
+        if os.getenv('DB_HOST') and await db_manager.is_database_available():
+            try:
+                await db_manager.save_submission(submission_data)
+                if debug_mode:
+                    logger.debug(f"💾 Complete submission saved to database: {submission_data['submission_id']}")
+                return
+            except Exception as db_error:
+                logger.error(f"❌ Database save failed, attempting reconnection: {str(db_error)}")
+                # Try to reinitialize the connection pool
+                try:
+                    await db_manager._ensure_connection_pool()
+                    await db_manager.save_submission(submission_data)
+                    logger.info(f"✅ Database reconnected and submission saved: {submission_data['submission_id']}")
+                    return
+                except Exception as retry_error:
+                    logger.error(f"❌ Database reconnection failed: {str(retry_error)}")
+        
+        # Save to in-memory storage for demo mode or when database is unavailable
+        in_memory_submissions.append(submission_data)
+        if debug_mode:
+            logger.debug(f"💾 Complete submission saved to memory (database unavailable): {submission_data['submission_id']}")
     except Exception as e:
         logger.error(f"❌ Failed to save complete submission, falling back to memory: {str(e)}")
         # Fallback to in-memory storage
@@ -283,12 +310,44 @@ async def root():
 
 @app.get("/api/health")
 async def health_check():
-    """Health check endpoint for monitoring"""
-    return {"status": "healthy", "service": "Random Corp API"}
+    """Enhanced health check endpoint with database connectivity status"""
+    try:
+        db_manager = get_db_manager()
+        db_available = False
+        db_status = "not_configured"
+        
+        if os.getenv('DB_HOST'):
+            try:
+                db_available = await db_manager.is_database_available()
+                db_status = "connected" if db_available else "disconnected"
+            except Exception as e:
+                db_status = f"error: {str(e)[:50]}"
+        
+        uptime = (datetime.now(timezone.utc) - app_start_time).total_seconds()
+        
+        return {
+            "status": "healthy", 
+            "service": "Random Corp API",
+            "version": "2.1.0",
+            "uptime_seconds": uptime,
+            "database": {
+                "status": db_status,
+                "available": db_available,
+                "host": os.getenv('DB_HOST', 'not_configured')
+            },
+            "mode": "database" if db_available else "demo"
+        }
+    except Exception as e:
+        logger.error(f"❌ Health check error: {str(e)}")
+        return {
+            "status": "degraded", 
+            "service": "Random Corp API",
+            "error": str(e)
+        }
 
 @app.get("/health")
 async def kubernetes_health_check():
-    """Health check endpoint for Kubernetes probes"""
+    """Simple health check endpoint for Kubernetes probes"""
     return {"status": "healthy", "service": "Random Corp API"}
 
 @app.post("/api/submit", response_model=SubmissionResponse)
@@ -474,40 +533,81 @@ async def get_stats():
         if debug_mode:
             logger.debug(f"📊 Generating stats report - Uptime: {uptime:.1f}s")
         
-        # Check if database is available
+        # Check if database is available and healthy
         db_manager = get_db_manager()
-        if os.getenv('DB_HOST') and hasattr(db_manager, 'pool') and db_manager.pool:
-            # Get stats from database
-            db_stats = await db_manager.get_statistics()
-            
-            # Extract last submission timestamp
-            latest_sub = db_stats["latest_submission"]
-            last_submission_time = None
-            latest_submission_obj = None
-            
-            if latest_sub and latest_sub.get('timestamp'):
-                try:
-                    last_submission_time = datetime.fromisoformat(latest_sub['timestamp'].replace('Z', '+00:00'))
-                    latest_submission_obj = LatestSubmission(
-                        id=latest_sub['id'],
-                        name=latest_sub['name'],
-                        timestamp=latest_sub['timestamp']
-                    )
-                except:
-                    last_submission_time = None
+        if os.getenv('DB_HOST') and await db_manager.is_database_available():
+            try:
+                # Get stats from database
+                db_stats = await db_manager.get_statistics()
+                
+                # Extract last submission timestamp
+                latest_sub = db_stats["latest_submission"]
+                last_submission_time = None
+                latest_submission_obj = None
+                
+                if latest_sub and latest_sub.get('timestamp'):
+                    try:
+                        last_submission_time = datetime.fromisoformat(latest_sub['timestamp'].replace('Z', '+00:00'))
+                        latest_submission_obj = LatestSubmission(
+                            id=latest_sub['id'],
+                            name=latest_sub['name'],
+                            timestamp=latest_sub['timestamp']
+                        )
+                    except:
+                        last_submission_time = None
 
-            stats = StatsResponse(
-                total_messages=len(POSITIVE_MESSAGES),
-                total_submissions=db_stats["total_submissions"],
-                recent_submissions=db_stats.get("recent_submissions", 0),
-                avg_processing_time=db_stats.get("avg_processing_time", 0.0),
-                latest_submission=latest_submission_obj,
-                api_version="2.1.0",
-                status="operational",
-                debug_mode=debug_mode,
-                last_submission=last_submission_time,
-                uptime_seconds=uptime
-            )
+                stats = StatsResponse(
+                    total_messages=len(POSITIVE_MESSAGES),
+                    total_submissions=db_stats["total_submissions"],
+                    recent_submissions=db_stats.get("recent_submissions", 0),
+                    avg_processing_time=db_stats.get("avg_processing_time", 0.0),
+                    latest_submission=latest_submission_obj,
+                    api_version="2.1.0",
+                    status="operational",
+                    debug_mode=debug_mode,
+                    last_submission=last_submission_time,
+                    uptime_seconds=uptime
+                )
+            except Exception as db_error:
+                logger.error(f"❌ Database stats query failed: {str(db_error)}")
+                # Try to reconnect
+                try:
+                    await db_manager._ensure_connection_pool()
+                    db_stats = await db_manager.get_statistics()
+                    
+                    # Extract last submission timestamp
+                    latest_sub = db_stats["latest_submission"]
+                    last_submission_time = None
+                    latest_submission_obj = None
+                    
+                    if latest_sub and latest_sub.get('timestamp'):
+                        try:
+                            last_submission_time = datetime.fromisoformat(latest_sub['timestamp'].replace('Z', '+00:00'))
+                            latest_submission_obj = LatestSubmission(
+                                id=latest_sub['id'],
+                                name=latest_sub['name'],
+                                timestamp=latest_sub['timestamp']
+                            )
+                        except:
+                            last_submission_time = None
+
+                    stats = StatsResponse(
+                        total_messages=len(POSITIVE_MESSAGES),
+                        total_submissions=db_stats["total_submissions"],
+                        recent_submissions=db_stats.get("recent_submissions", 0),
+                        avg_processing_time=db_stats.get("avg_processing_time", 0.0),
+                        latest_submission=latest_submission_obj,
+                        api_version="2.1.0",
+                        status="operational",
+                        debug_mode=debug_mode,
+                        last_submission=last_submission_time,
+                        uptime_seconds=uptime
+                    )
+                    logger.info("✅ Database reconnected and stats retrieved successfully")
+                except Exception as retry_error:
+                    logger.error(f"❌ Database reconnection failed, using demo mode: {str(retry_error)}")
+                    # Fall through to demo mode
+                    raise db_error
         else:
             # Use in-memory data for demo mode
             total_submissions = len(in_memory_submissions)
@@ -593,6 +693,29 @@ async def get_submissions(limit: int = 10, offset: int = 0):
     except Exception as e:
         logger.error(f"❌ Error retrieving submissions from database: {str(e)}")
         raise HTTPException(status_code=500, detail="Error retrieving submissions from database")
+
+# Global flag to track if background tasks are running
+background_tasks_started = False
+
+async def periodic_database_health_check():
+    """Periodically check database health and attempt reconnection if needed"""
+    while True:
+        try:
+            await asyncio.sleep(60)  # Check every 60 seconds
+            
+            db_manager = get_db_manager()
+            db_host = os.getenv('DB_HOST')
+            
+            if db_host and not await db_manager.is_database_available():
+                logger.warning("🔄 Database not available, attempting reconnection...")
+                try:
+                    await db_manager.initialize()
+                    logger.info("✅ Database reconnection successful!")
+                except Exception as e:
+                    logger.debug(f"⚠️ Database reconnection failed: {str(e)}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error in database health check: {str(e)}")
 
 if __name__ == "__main__":
     import uvicorn
